@@ -1,0 +1,254 @@
+:root {
+  --bg: #0f1113;
+  --panel: rgba(17, 20, 24, 0.9);
+  --panel-line: rgba(246, 241, 231, 0.14);
+  --ink: #f6f1e7;
+  --muted: #99a3a4;
+  --amber: #ffb000;
+  --cyan: #59c9ff;
+  --green: #42d483;
+  --red: #ff6157;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  color: var(--ink);
+  font-family: "Bahnschrift", "Aptos", sans-serif;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 176, 0, 0.18), transparent 24rem),
+    radial-gradient(circle at 100% 18%, rgba(89, 201, 255, 0.12), transparent 20rem),
+    linear-gradient(155deg, #0d1012 0%, #14181b 45%, #0f1317 100%);
+}
+
+.viewer-shell {
+  display: grid;
+  gap: 18px;
+  width: min(100%, 980px);
+}
+
+.viewer-header,
+.viewer-panel {
+  border: 1px solid var(--panel-line);
+  border-radius: 20px;
+  background: var(--panel);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(22px);
+}
+
+.viewer-header {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 18px;
+  color: #18140b;
+  background: linear-gradient(145deg, #ffb000, #f3df9b);
+  font-size: 27px;
+  font-weight: 800;
+}
+
+.hero-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.eyebrow,
+.hero-text,
+.status-text,
+.viewer-note {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--amber);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1,
+.section-title {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(32px, 5vw, 46px);
+  line-height: 1;
+}
+
+.hero-text {
+  max-width: 42rem;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.viewer-panel {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+}
+
+.status-row,
+.meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.status-pill,
+.meta-pill {
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.status-pill {
+  color: #0f160f;
+  background: var(--green);
+  font-weight: 800;
+}
+
+.status-pill.is-pending {
+  color: #1c1408;
+  background: var(--amber);
+}
+
+.status-pill.is-error {
+  color: #1d0906;
+  background: var(--red);
+}
+
+.status-text {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.meta-pill {
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.section-title {
+  font-size: 18px;
+}
+
+.symbol-sequence {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: clamp(10px, 2vw, 18px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sequence-slot {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-height: 88px;
+  border: 1px solid rgba(246, 241, 231, 0.14);
+  border-radius: 18px;
+  color: rgba(246, 241, 231, 0.95);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.sequence-slot.is-filled {
+  border-color: rgba(255, 176, 0, 0.38);
+  background: linear-gradient(145deg, rgba(255, 176, 0, 0.18), rgba(89, 201, 255, 0.12));
+}
+
+.sequence-slot.is-empty {
+  opacity: 0.56;
+}
+
+.expiry-track {
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.expiry-track.is-hidden {
+  visibility: hidden;
+}
+
+.expiry-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--amber), var(--cyan));
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.viewer-note {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+svg {
+  width: 62%;
+  height: 62%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 720px) {
+  body {
+    padding: 16px;
+  }
+
+  .viewer-header,
+  .viewer-panel {
+    padding: 18px;
+    border-radius: 18px;
+  }
+
+  .viewer-header {
+    align-items: start;
+  }
+
+  .brand-mark {
+    width: 58px;
+    height: 58px;
+    border-radius: 16px;
+    font-size: 22px;
+  }
+
+  .symbol-sequence {
+    gap: 10px;
+  }
+
+  .sequence-slot {
+    min-height: 62px;
+    border-radius: 14px;
+  }
+}

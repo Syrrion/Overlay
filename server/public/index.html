@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ura Helper Web</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="viewer-shell">
+      <header class="viewer-header">
+        <div class="brand-mark">UH</div>
+        <div class="hero-copy">
+          <p class="eyebrow">Viewer Web</p>
+          <h1>Ura Helper</h1>
+          <p class="hero-text">Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.</p>
+        </div>
+      </header>
+
+      <section class="viewer-panel" aria-labelledby="viewer-title">
+        <div class="status-row">
+          <span class="status-pill is-pending" id="status-pill">Connexion</span>
+          <p class="status-text" id="status-text">Connexion au relais...</p>
+        </div>
+
+        <div class="meta-row">
+          <span class="meta-pill" id="room-pill">Salon</span>
+          <span class="meta-pill" id="relay-pill">Relais</span>
+        </div>
+
+        <h2 class="section-title" id="viewer-title">Sequence synchronisee</h2>
+        <ol class="symbol-sequence" id="sequence" aria-label="Sequence de symboles"></ol>
+
+        <div class="expiry-track is-hidden" id="expiry-track" aria-hidden="true">
+          <span class="expiry-fill" id="expiry-fill"></span>
+        </div>
+
+        <p class="viewer-note" id="viewer-note"></p>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,19 @@
+{
+  "name": "ura-helper",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "Ura Helper",
+  "description": "No-focus Windows helper overlay with leader and viewer modes.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "relay": "node server/relay.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js"
+  },
+  "dependencies": {
+    "ws": "^8.20.1"
+  },
+  "devDependencies": {
+    "electron": "^42.2.0"
+  }
+}
