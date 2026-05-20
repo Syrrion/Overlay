@@ -8,12 +8,36 @@
   "scripts": {
     "start": "electron .",
     "relay": "node server/relay.js",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js"
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "site.syrion.ura-helper",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    }
   },
   "dependencies": {
     "ws": "^8.20.1"
   },
   "devDependencies": {
-    "electron": "^42.2.0"
+    "electron": "^42.2.0",
+    "electron-builder": "^26.8.1"
   }
 }

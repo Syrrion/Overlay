@@ -2,4 +2,5 @@ node_modules/
 dist/
 out/
 *.log
+.temp-test-state.json
 server/.relay-state.json

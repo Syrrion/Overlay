@@ -53,7 +53,7 @@ function connectReader() {
 
   socket.addEventListener("open", () => {
     state.connected = true;
-    setStatus("Connecte au relais.", "connected");
+    setStatus("Connecté", "connected");
     socket.send(JSON.stringify({ type: "join", role: "reader", room }));
   });
 
@@ -99,7 +99,7 @@ async function pollRoomState() {
 
     state.httpConnected = true;
     if (!state.connected) {
-      setStatus("Connecte au relais.", "connected");
+      setStatus("Connecté", "connected");
     }
 
     applyStateMessage(await response.json());

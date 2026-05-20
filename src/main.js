@@ -556,7 +556,7 @@ function connectSession(serverUrl, room, role) {
     }
 
     state.connected = true;
-    state.message = "Connecte au relais.";
+    state.message = "Connecté";
     sendSocket(socket, { type: "join", role, room });
 
     if (role === "leader") {
