@@ -30,6 +30,7 @@ let sessionSocket = null;
 let reconnectTimer = null;
 let expiryTimer = null;
 let saveSettingsTimer = null;
+let lastHttpPublishError = "";
 let settings = {};
 let suppressManagedWindowCloseQuit = false;
 
@@ -718,13 +719,16 @@ function scheduleExpiryTimer() {
 }
 
 function sendStateToServer(socket = sessionSocket) {
-  sendSocket(socket, {
+  const message = {
     type: "state",
     room: state.room,
     sequence: state.sequence,
     expiresAt: state.expiresAt,
     autoClearMs: AUTO_CLEAR_MS
-  });
+  };
+
+  sendSocket(socket, message);
+  publishStateToServer(message);
 }
 
 function sendSocket(socket, message) {
@@ -733,6 +737,46 @@ function sendSocket(socket, message) {
   }
 
   socket.send(JSON.stringify(message));
+}
+
+async function publishStateToServer(message) {
+  if (state.role !== "leader" || typeof fetch !== "function") {
+    return;
+  }
+
+  try {
+    const response = await fetch(`${getRelayHttpUrl(state.serverUrl)}/api/rooms/${encodeURIComponent(state.room)}/state`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(message)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    if (lastHttpPublishError) {
+      lastHttpPublishError = "";
+      if (!state.connected) {
+        state.message = "Publication HTTP active.";
+        sendStateToWindows();
+      }
+    }
+  } catch (error) {
+    lastHttpPublishError = error.message;
+    if (!state.connected) {
+      state.message = `Publication HTTP impossible: ${error.message}`;
+      sendStateToWindows();
+    }
+  }
+}
+
+function getRelayHttpUrl(value) {
+  const url = new URL(value);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return url.toString().replace(/\/$/, "");
 }
 
 function sendStateToWindows() {

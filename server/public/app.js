@@ -1,10 +1,12 @@
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
+const HTTP_POLL_MS = 500;
 
 const params = new URLSearchParams(window.location.search);
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
 const relayUrl = getRelayUrl(params.get("relay"));
+const relayHttpUrl = getRelayHttpUrl(relayUrl);
 
 const elements = {
   expiryFill: document.getElementById("expiry-fill"),
@@ -20,11 +22,14 @@ const elements = {
 const state = {
   autoClearMs: DEFAULT_AUTO_CLEAR_MS,
   connected: false,
+  httpConnected: false,
   expiresAt: null,
   sequence: []
 };
 
 let expiryTimer = null;
+let pollInFlight = false;
+let pollTimer = null;
 let reconnectTimer = null;
 let socket = null;
 
@@ -36,6 +41,7 @@ elements.note.textContent = `Cette page rejoint automatiquement le salon ${room}
 renderSequence();
 setStatus("Connexion au relais...", "pending");
 connectReader();
+startHttpPolling();
 
 function connectReader() {
   clearTimeout(reconnectTimer);
@@ -60,15 +66,54 @@ function connectReader() {
 
   socket.addEventListener("close", () => {
     state.connected = false;
-    setStatus("Relais deconnecte. Reconnexion...", "pending");
+    if (!state.httpConnected) {
+      setStatus("Relais deconnecte. Reconnexion...", "pending");
+    }
     reconnectTimer = window.setTimeout(connectReader, 2000);
   });
 
   socket.addEventListener("error", () => {
-    if (!state.connected) {
+    if (!state.connected && !state.httpConnected) {
       setStatus("Connexion impossible. Nouvelle tentative...", "error");
     }
   });
+}
+
+function startHttpPolling() {
+  clearInterval(pollTimer);
+  pollTimer = window.setInterval(pollRoomState, HTTP_POLL_MS);
+  pollRoomState();
+}
+
+async function pollRoomState() {
+  if (pollInFlight) {
+    return;
+  }
+
+  pollInFlight = true;
+  try {
+    const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}`, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    state.httpConnected = true;
+    if (!state.connected) {
+      setStatus("Connecte au relais.", "connected");
+    }
+
+    applyStateMessage(await response.json());
+  } catch (_error) {
+    state.httpConnected = false;
+    if (!state.connected) {
+      setStatus("API relais indisponible. Nouvelle tentative...", "error");
+    }
+  } finally {
+    pollInFlight = false;
+  }
 }
 
 function handleMessage(rawMessage) {
@@ -93,6 +138,10 @@ function handleMessage(rawMessage) {
     return;
   }
 
+  applyStateMessage(message);
+}
+
+function applyStateMessage(message) {
   state.sequence = filterSequence(message.sequence);
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
   state.autoClearMs = Number.isFinite(message.autoClearMs) ? message.autoClearMs : DEFAULT_AUTO_CLEAR_MS;
@@ -210,6 +259,12 @@ function getDefaultRelayUrl() {
   }
 
   return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+}
+
+function getRelayHttpUrl(webSocketUrl) {
+  const url = new URL(webSocketUrl);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  return url.toString().replace(/\/$/, "");
 }
 
 function symbolSvg(symbol) {

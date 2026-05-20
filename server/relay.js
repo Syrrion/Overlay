@@ -6,6 +6,7 @@ const { WebSocket, WebSocketServer } = require("ws");
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const AUTO_CLEAR_MS = 20_000;
 const STATE_POLL_MS = 250;
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
@@ -19,6 +20,15 @@ const MIME_TYPES = {
 };
 
 const rooms = new Map();
+const metrics = {
+  httpStateUpdates: 0,
+  stateWriteErrors: 0,
+  stateWrites: 0,
+  websocketConnections: 0,
+  websocketJoins: 0,
+  websocketStateUpdates: 0,
+  lastStateWriteError: ""
+};
 const sharedStatePoller = setInterval(syncRoomsFromSharedState, STATE_POLL_MS);
 sharedStatePoller.unref?.();
 
@@ -36,8 +46,15 @@ const server = http.createServer((request, response) => {
       localRooms: rooms.size,
       localClients: countLocalClients(),
       storedRooms: Object.keys(store.rooms).length,
+      stateFile: STATE_FILE,
+      metrics,
       pid: process.pid
     }));
+    return;
+  }
+
+  if (requestUrl.pathname.startsWith("/api/rooms/")) {
+    handleApiRequest(request, response, requestUrl);
     return;
   }
 
@@ -56,6 +73,7 @@ const server = http.createServer((request, response) => {
 const wss = new WebSocketServer({ server });
 
 wss.on("connection", (socket) => {
+  metrics.websocketConnections += 1;
   socket.room = null;
   socket.role = "reader";
 
@@ -99,6 +117,100 @@ function handleMessage(socket, data) {
   }
 }
 
+function handleApiRequest(request, response, requestUrl) {
+  const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/state)?$/i.exec(requestUrl.pathname);
+  const roomName = normalizeRoom(match?.[1]);
+
+  if (!roomName) {
+    sendJson(response, 404, { ok: false, error: "Salon invalide." });
+    return;
+  }
+
+  if (request.method === "OPTIONS") {
+    response.writeHead(204, createJsonHeaders({
+      "access-control-allow-headers": "content-type",
+      "access-control-allow-methods": "GET, HEAD, POST, OPTIONS"
+    }));
+    response.end();
+    return;
+  }
+
+  if (request.method === "GET" || request.method === "HEAD") {
+    sendJson(response, 200, getRoomStateMessage(roomName), request.method === "HEAD");
+    return;
+  }
+
+  if (request.method === "POST" && requestUrl.pathname.endsWith("/state")) {
+    readJsonBody(request, response, (message) => {
+      const room = getRoom(roomName);
+      room.sequence = filterSequence(message.sequence);
+      room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
+      room.updatedAt = Date.now();
+
+      metrics.httpStateUpdates += 1;
+      persistRoomState(room);
+      scheduleRoomClear(roomName, room);
+      broadcastRoomState(room);
+      sendJson(response, 200, createStateMessage(room));
+    });
+    return;
+  }
+
+  response.writeHead(405, {
+    ...createJsonHeaders(),
+    "allow": "GET, HEAD, POST, OPTIONS"
+  });
+  response.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+}
+
+function readJsonBody(request, response, callback) {
+  let body = "";
+  let tooLarge = false;
+
+  request.on("data", (chunk) => {
+    body += chunk.toString("utf8");
+    if (Buffer.byteLength(body, "utf8") > MAX_JSON_BODY_BYTES) {
+      tooLarge = true;
+      sendJson(response, 413, { ok: false, error: "Payload trop volumineux." });
+      request.destroy();
+    }
+  });
+
+  request.on("end", () => {
+    if (tooLarge) {
+      return;
+    }
+
+    try {
+      callback(body ? JSON.parse(body) : {});
+    } catch (_error) {
+      sendJson(response, 400, { ok: false, error: "JSON invalide." });
+    }
+  });
+
+  request.on("error", () => {
+    if (!response.headersSent) {
+      sendJson(response, 400, { ok: false, error: "Lecture de la requete impossible." });
+    }
+  });
+}
+
+function getRoomStateMessage(roomName) {
+  const storedRoom = readStoredRoom(roomName);
+  const room = {
+    name: roomName,
+    sequence: [],
+    expiresAt: null,
+    updatedAt: 0
+  };
+
+  if (storedRoom) {
+    applyRoomState(room, storedRoom);
+  }
+
+  return createStateMessage(room);
+}
+
 function joinRoom(socket, message) {
   const roomName = normalizeRoom(message.room);
   if (!roomName) {
@@ -109,6 +221,7 @@ function joinRoom(socket, message) {
   leaveRoom(socket);
   socket.room = roomName;
   socket.role = message.role === "leader" ? "leader" : "reader";
+  metrics.websocketJoins += 1;
 
   const room = getRoom(roomName);
   const storedRoom = readStoredRoom(roomName);
@@ -131,6 +244,7 @@ function updateRoomState(socket, message) {
   room.sequence = filterSequence(message.sequence);
   room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
   room.updatedAt = Date.now();
+  metrics.websocketStateUpdates += 1;
   persistRoomState(room);
   scheduleRoomClear(socket.room, room);
   broadcastRoomState(room);
@@ -264,7 +378,11 @@ function writeStateStore(store) {
     fs.mkdirSync(stateDir, { recursive: true });
     fs.writeFileSync(tempFile, JSON.stringify(store), "utf8");
     fs.renameSync(tempFile, STATE_FILE);
+    metrics.stateWrites += 1;
+    metrics.lastStateWriteError = "";
   } catch (error) {
+    metrics.stateWriteErrors += 1;
+    metrics.lastStateWriteError = error.message;
     console.warn(`Unable to write relay state: ${error.message}`);
     try {
       fs.rmSync(tempFile, { force: true });
@@ -289,6 +407,25 @@ function countLocalClients() {
   }
 
   return count;
+}
+
+function sendJson(response, statusCode, payload, headOnly = false) {
+  response.writeHead(statusCode, createJsonHeaders());
+  if (headOnly) {
+    response.end();
+    return;
+  }
+
+  response.end(JSON.stringify(payload));
+}
+
+function createJsonHeaders(extraHeaders = {}) {
+  return {
+    "access-control-allow-origin": "*",
+    "cache-control": "no-store",
+    "content-type": "application/json; charset=utf-8",
+    ...extraHeaders
+  };
 }
 
 function sendRoomState(socket, room) {
