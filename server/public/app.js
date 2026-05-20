@@ -33,10 +33,7 @@ let pollTimer = null;
 let reconnectTimer = null;
 let socket = null;
 
-document.title = `Ura Helper Web - ${room}`;
-elements.roomPill.textContent = `Salon: ${room}`;
-elements.relayPill.textContent = `Relais: ${relayUrl}`;
-elements.note.textContent = `Cette page rejoint automatiquement le salon ${room}. Utilise ?room=autre-salon pour consulter un autre salon, ou ?relay=wss://ton-relai pour viser un autre WebSocket.`;
+document.title = `Ura Helper Web`;
 
 renderSequence();
 setStatus("Connexion au relais...", "pending");
