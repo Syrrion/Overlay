@@ -215,8 +215,11 @@ function isNewerRoomState(room, storedRoom) {
 }
 
 function applyRoomState(room, storedRoom) {
-  room.sequence = filterSequence(storedRoom.sequence);
-  room.expiresAt = normalizeExpiresAt(storedRoom.expiresAt);
+  const expiresAt = normalizeExpiresAt(storedRoom.expiresAt);
+  const expired = Boolean(storedRoom.expiresAt) && !expiresAt;
+
+  room.sequence = expired ? [] : filterSequence(storedRoom.sequence);
+  room.expiresAt = expiresAt;
   room.updatedAt = Number(storedRoom.updatedAt || Date.now());
 }
 
