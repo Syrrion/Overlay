@@ -790,7 +790,7 @@ function normalizeServerUrl(value) {
 
   let withScheme = rawValue.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://");
   if (!/^wss?:\/\//i.test(withScheme)) {
-    withScheme = `wss://${withScheme}`;
+    withScheme = `ws://${withScheme}`;
   }
 
   const url = new URL(withScheme);

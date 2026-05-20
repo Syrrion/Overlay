@@ -28,10 +28,7 @@ let expiryTimer = null;
 let reconnectTimer = null;
 let socket = null;
 
-document.title = `Ura Helper Web - ${room}`;
-elements.roomPill.textContent = `Salon: ${room}`;
-elements.relayPill.textContent = `Relais: ${relayUrl}`;
-elements.note.textContent = `Cette page rejoint automatiquement le salon ${room}. Utilise ?room=autre-salon pour consulter un autre salon, ou ?relay=wss://ton-relai pour viser un autre WebSocket.`;
+document.title = `Ura Helper Web`;
 
 renderSequence();
 setStatus("Connexion au relais...", "pending");
@@ -198,7 +195,7 @@ function getRelayUrl(overrideValue) {
 
   let withScheme = rawValue.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://");
   if (!/^wss?:\/\//i.test(withScheme)) {
-    withScheme = `${window.location.protocol === "https:" ? "wss" : "ws"}://${withScheme}`;
+    withScheme = `ws://${withScheme}`;
   }
 
   return new URL(withScheme).toString().replace(/\/$/, "");
@@ -209,7 +206,7 @@ function getDefaultRelayUrl() {
     return "ws://127.0.0.1:8787";
   }
 
-  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+  return `ws://${window.location.host}`;
 }
 
 function symbolSvg(symbol) {
