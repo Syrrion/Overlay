@@ -6,6 +6,7 @@ const { WebSocket } = require("ws");
 const DEFAULT_SERVER_URL = "ura.syrion.site";
 const DEFAULT_ROOM = "ura-helper";
 const AUTO_CLEAR_MS = 20_000;
+const HTTP_POLL_MS = 500;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
@@ -29,6 +30,9 @@ let paletteWindow = null;
 let sessionSocket = null;
 let reconnectTimer = null;
 let expiryTimer = null;
+let httpPollTimer = null;
+let httpPollInFlight = false;
+let httpStateConnected = false;
 let saveSettingsTimer = null;
 let lastHttpPublishError = "";
 let settings = {};
@@ -99,6 +103,10 @@ ipcMain.handle("session:start", (_event, options = {}) => {
     state.message = "Connexion au relais web...";
 
     connectSession(serverUrl, room, role);
+    if (role === "reader") {
+      startHttpStatePolling(serverUrl, room);
+    }
+
     createSequenceWindow();
 
     if (role === "leader") {
@@ -578,8 +586,8 @@ function connectSession(serverUrl, room, role) {
     }
 
     sessionSocket = null;
-    state.connected = false;
-    state.message = "Relais deconnecte. Reconnexion...";
+    state.connected = role === "reader" && httpStateConnected;
+    state.message = state.connected ? "Connecté" : "Relais deconnecte. Reconnexion...";
     sendStateToWindows();
     reconnectTimer = setTimeout(() => {
       if (state.role !== "idle") {
@@ -593,8 +601,8 @@ function connectSession(serverUrl, room, role) {
       return;
     }
 
-    state.connected = false;
-    state.message = `Connexion impossible: ${error.message}`;
+    state.connected = role === "reader" && httpStateConnected;
+    state.message = state.connected ? "Connecté" : `Connexion impossible: ${error.message}`;
     sendStateToWindows();
   });
 }
@@ -602,6 +610,7 @@ function connectSession(serverUrl, room, role) {
 function stopSession({ notify = true } = {}) {
   clearTimeout(reconnectTimer);
   clearTimeout(expiryTimer);
+  stopHttpStatePolling();
   reconnectTimer = null;
   expiryTimer = null;
 
@@ -658,6 +667,55 @@ function applyRemoteState(message) {
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
   scheduleExpiryTimer();
   sendStateToWindows();
+}
+
+function startHttpStatePolling(serverUrl, room) {
+  stopHttpStatePolling();
+  pollRemoteState(serverUrl, room);
+  httpPollTimer = setInterval(() => {
+    pollRemoteState(serverUrl, room);
+  }, HTTP_POLL_MS);
+}
+
+function stopHttpStatePolling() {
+  clearInterval(httpPollTimer);
+  httpPollTimer = null;
+  httpPollInFlight = false;
+  httpStateConnected = false;
+}
+
+async function pollRemoteState(serverUrl, room) {
+  if (httpPollInFlight || state.role !== "reader" || typeof fetch !== "function") {
+    return;
+  }
+
+  httpPollInFlight = true;
+  try {
+    const response = await fetch(`${getRelayHttpUrl(serverUrl)}/api/rooms/${encodeURIComponent(room)}`, {
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    if (state.role !== "reader") {
+      return;
+    }
+
+    httpStateConnected = true;
+    state.connected = true;
+    state.message = "Connecté";
+    applyRemoteState(await response.json());
+  } catch (error) {
+    httpStateConnected = false;
+    if (state.role === "reader" && !state.connected) {
+      state.message = `Lecture HTTP impossible: ${error.message}`;
+      sendStateToWindows();
+    }
+  } finally {
+    httpPollInFlight = false;
+  }
 }
 
 function handleLeaderSymbol(symbol) {

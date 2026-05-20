@@ -1,22 +1,34 @@
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
+const SYMBOL_NAMES = {
+  cross: "Croix",
+  t: "T",
+  circle: "Rond",
+  diamond: "Losange",
+  triangle: "Triangle"
+};
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
 const HTTP_POLL_MS = 500;
 
 const params = new URLSearchParams(window.location.search);
+const mode = normalizeMode(params.get("mode") || params.get("role"));
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
 const relayUrl = getRelayUrl(params.get("relay"));
 const relayHttpUrl = getRelayHttpUrl(relayUrl);
 
 const elements = {
+  clearSequence: document.getElementById("clear-sequence"),
   expiryFill: document.getElementById("expiry-fill"),
   expiryTrack: document.getElementById("expiry-track"),
-  note: document.getElementById("viewer-note"),
-  relayPill: document.getElementById("relay-pill"),
-  roomPill: document.getElementById("room-pill"),
+  leaderControls: document.getElementById("leader-controls"),
+  leaderMode: document.getElementById("leader-mode"),
+  modeCopy: document.getElementById("mode-copy"),
+  modeEyebrow: document.getElementById("mode-eyebrow"),
   sequence: document.getElementById("sequence"),
+  symbolActions: document.getElementById("symbol-actions"),
   statusPill: document.getElementById("status-pill"),
-  statusText: document.getElementById("status-text")
+  statusText: document.getElementById("status-text"),
+  viewerMode: document.getElementById("viewer-mode")
 };
 
 const state = {
@@ -24,6 +36,7 @@ const state = {
   connected: false,
   httpConnected: false,
   expiresAt: null,
+  publishing: false,
   sequence: []
 };
 
@@ -33,12 +46,31 @@ let pollTimer = null;
 let reconnectTimer = null;
 let socket = null;
 
-document.title = `Ura Helper Web`;
+document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 
+configureModeUi();
 renderSequence();
+renderLeaderControls();
 setStatus("Connexion au relais...", "pending");
 connectReader();
 startHttpPolling();
+
+function configureModeUi() {
+  elements.modeEyebrow.textContent = mode === "leader" ? "Leader Web" : "Viewer Web";
+  elements.modeCopy.textContent = mode === "leader"
+    ? "Pilote la sequence depuis le navigateur et synchronise les viewers en direct."
+    : "Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.";
+
+  elements.leaderControls.classList.toggle("is-hidden", mode !== "leader");
+  elements.viewerMode.classList.toggle("is-active", mode === "viewer");
+  elements.leaderMode.classList.toggle("is-active", mode === "leader");
+  elements.viewerMode.setAttribute("aria-pressed", String(mode === "viewer"));
+  elements.leaderMode.setAttribute("aria-pressed", String(mode === "leader"));
+
+  elements.viewerMode.addEventListener("click", () => switchMode("viewer"));
+  elements.leaderMode.addEventListener("click", () => switchMode("leader"));
+  elements.clearSequence.addEventListener("click", clearLeaderSequence);
+}
 
 function connectReader() {
   clearTimeout(reconnectTimer);
@@ -54,7 +86,7 @@ function connectReader() {
   socket.addEventListener("open", () => {
     state.connected = true;
     setStatus("Connecté", "connected");
-    socket.send(JSON.stringify({ type: "join", role: "reader", room }));
+    sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
   });
 
   socket.addEventListener("message", (event) => {
@@ -98,11 +130,14 @@ async function pollRoomState() {
     }
 
     state.httpConnected = true;
-    if (!state.connected) {
+    if (!state.connected && !state.publishing) {
       setStatus("Connecté", "connected");
     }
 
-    applyStateMessage(await response.json());
+    const message = await response.json();
+    if (!(mode === "leader" && state.publishing)) {
+      applyStateMessage(message);
+    }
   } catch (_error) {
     state.httpConnected = false;
     if (!state.connected) {
@@ -131,7 +166,7 @@ function handleMessage(rawMessage) {
     return;
   }
 
-  if (message.type !== "state") {
+  if (message.type !== "state" || (mode === "leader" && state.publishing)) {
     return;
   }
 
@@ -144,6 +179,7 @@ function applyStateMessage(message) {
   state.autoClearMs = Number.isFinite(message.autoClearMs) ? message.autoClearMs : DEFAULT_AUTO_CLEAR_MS;
 
   renderSequence();
+  renderLeaderControls();
   syncExpiryBar();
 }
 
@@ -158,6 +194,104 @@ function renderSequence() {
       </li>
     `;
   }).join("");
+}
+
+function renderLeaderControls() {
+  if (mode !== "leader") {
+    return;
+  }
+
+  elements.symbolActions.innerHTML = SYMBOLS.map((symbol) => {
+    const selected = state.sequence.includes(symbol);
+    const disabled = selected || state.sequence.length >= SYMBOLS.length || state.publishing;
+
+    return `
+      <button class="symbol-button ${selected ? "is-selected" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}" ${disabled ? "disabled" : ""}>
+        ${symbolSvg(symbol)}
+      </button>
+    `;
+  }).join("");
+
+  for (const button of elements.symbolActions.querySelectorAll("[data-symbol]")) {
+    button.addEventListener("click", () => handleLeaderSymbol(button.dataset.symbol));
+  }
+
+  elements.clearSequence.disabled = state.sequence.length === 0 || state.publishing;
+}
+
+function handleLeaderSymbol(symbol) {
+  if (mode !== "leader" || state.publishing) {
+    return;
+  }
+
+  if (!SYMBOLS.includes(symbol) || state.sequence.includes(symbol) || state.sequence.length >= SYMBOLS.length) {
+    return;
+  }
+
+  const nextSequence = [...state.sequence, symbol];
+  if (nextSequence.length === SYMBOLS.length - 1) {
+    const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
+    if (lastSymbol) {
+      nextSequence.push(lastSymbol);
+    }
+  }
+
+  state.sequence = nextSequence;
+  state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
+  publishLeaderState();
+  renderSequence();
+  renderLeaderControls();
+  syncExpiryBar();
+}
+
+function clearLeaderSequence() {
+  if (mode !== "leader" || state.publishing || state.sequence.length === 0) {
+    return;
+  }
+
+  state.sequence = [];
+  state.expiresAt = null;
+  publishLeaderState();
+  renderSequence();
+  renderLeaderControls();
+  syncExpiryBar();
+}
+
+async function publishLeaderState() {
+  const message = {
+    type: "state",
+    room,
+    sequence: state.sequence,
+    expiresAt: state.expiresAt,
+    autoClearMs: DEFAULT_AUTO_CLEAR_MS
+  };
+
+  state.publishing = true;
+  setStatus("Publication...", "pending");
+  sendSocketMessage(message);
+
+  try {
+    const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}/state`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json"
+      },
+      body: JSON.stringify(message)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    state.httpConnected = true;
+    setStatus("Connecté", "connected");
+    applyStateMessage(await response.json());
+  } catch (error) {
+    setStatus(`Publication impossible: ${error.message}`, "error");
+  } finally {
+    state.publishing = false;
+    renderLeaderControls();
+  }
 }
 
 function syncExpiryBar() {
@@ -200,7 +334,7 @@ function setStatus(message, variant) {
   elements.statusPill.className = "status-pill";
 
   if (variant === "connected") {
-    elements.statusPill.textContent = "Connecte";
+    elements.statusPill.textContent = "Connecté";
     return;
   }
 
@@ -212,6 +346,14 @@ function setStatus(message, variant) {
 
   elements.statusPill.classList.add("is-pending");
   elements.statusPill.textContent = "Connexion";
+}
+
+function sendSocketMessage(message) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  socket.send(JSON.stringify(message));
 }
 
 function filterSequence(sequence) {
@@ -232,6 +374,26 @@ function filterSequence(sequence) {
 function normalizeRoom(value) {
   const candidate = String(value || "").trim().toLowerCase();
   return /^[a-z0-9_-]{3,48}$/.test(candidate) ? candidate : "";
+}
+
+function normalizeMode(value) {
+  return value === "leader" ? "leader" : "viewer";
+}
+
+function switchMode(nextMode) {
+  if (nextMode === mode) {
+    return;
+  }
+
+  const nextUrl = new URL(window.location.href);
+  nextUrl.searchParams.delete("role");
+  if (nextMode === "leader") {
+    nextUrl.searchParams.set("mode", "leader");
+  } else {
+    nextUrl.searchParams.delete("mode");
+  }
+
+  window.location.assign(nextUrl.toString());
 }
 
 function getRelayUrl(overrideValue) {

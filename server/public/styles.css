@@ -109,6 +109,40 @@ h1 {
   padding: 22px;
 }
 
+.mode-switch {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 260px);
+  padding: 4px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.mode-button {
+  min-height: 40px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mode-button.is-active {
+  color: #18140b;
+  background: var(--amber);
+}
+
+.mode-button:focus-visible,
+.symbol-button:focus-visible,
+.clear-button:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
+
 .status-row,
 .meta-row {
   display: flex;
@@ -205,6 +239,68 @@ h1 {
   transform: scaleX(0);
 }
 
+.leader-controls {
+  display: grid;
+  gap: 14px;
+}
+
+.leader-controls.is-hidden {
+  display: none;
+}
+
+.symbol-actions {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(56px, 1fr));
+  gap: 10px;
+}
+
+.symbol-button {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  min-height: 64px;
+  border: 1px solid rgba(246, 241, 231, 0.18);
+  border-radius: 16px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.05);
+  cursor: pointer;
+}
+
+.symbol-button:hover:not(:disabled) {
+  border-color: rgba(255, 176, 0, 0.55);
+  background: rgba(255, 176, 0, 0.12);
+}
+
+.symbol-button.is-selected {
+  border-color: rgba(255, 176, 0, 0.62);
+  color: #fff8dd;
+  background: linear-gradient(145deg, rgba(255, 176, 0, 0.22), rgba(89, 201, 255, 0.12));
+}
+
+.symbol-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.clear-button {
+  justify-self: start;
+  min-height: 42px;
+  border: 1px solid rgba(255, 97, 87, 0.34);
+  border-radius: 999px;
+  padding: 0 18px;
+  color: #ffdeda;
+  background: rgba(255, 97, 87, 0.12);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.clear-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .viewer-note {
   color: var(--muted);
   font-size: 14px;
@@ -249,6 +345,15 @@ svg {
 
   .sequence-slot {
     min-height: 62px;
+    border-radius: 14px;
+  }
+
+  .symbol-actions {
+    gap: 8px;
+  }
+
+  .symbol-button {
+    min-height: 52px;
     border-radius: 14px;
   }
 }

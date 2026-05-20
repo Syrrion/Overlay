@@ -12,22 +12,33 @@
       <header class="viewer-header">
         <div class="brand-mark">UH</div>
         <div class="hero-copy">
-          <p class="eyebrow">Viewer Web</p>
+          <p class="eyebrow" id="mode-eyebrow">Viewer Web</p>
           <h1>Ura Helper</h1>
-          <p class="hero-text">Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.</p>
+          <p class="hero-text" id="mode-copy">Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.</p>
         </div>
       </header>
 
       <section class="viewer-panel" aria-labelledby="viewer-title">
+        <div class="mode-switch" aria-label="Mode web">
+          <button class="mode-button" id="viewer-mode" type="button">Viewer</button>
+          <button class="mode-button" id="leader-mode" type="button">Leader</button>
+        </div>
+
         <div class="status-row">
           <span class="status-pill is-pending" id="status-pill">Connexion</span>
           <p class="status-text" id="status-text">Connexion au relais...</p>
         </div>
 
+        <h2 class="section-title" id="viewer-title">Sequence synchronisee</h2>
         <ol class="symbol-sequence" id="sequence" aria-label="Sequence de symboles"></ol>
 
         <div class="expiry-track is-hidden" id="expiry-track" aria-hidden="true">
           <span class="expiry-fill" id="expiry-fill"></span>
+        </div>
+
+        <div class="leader-controls is-hidden" id="leader-controls" aria-label="Commandes Leader">
+          <div class="symbol-actions" id="symbol-actions"></div>
+          <button class="clear-button" id="clear-sequence" type="button">Effacer</button>
         </div>
       </section>
     </main>
