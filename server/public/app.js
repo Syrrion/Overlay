@@ -84,12 +84,14 @@ function createCompactMarkup(targetView) {
     return `
       <main class="palette-stage">
         <nav class="leader-palette" id="leader-controls" aria-label="Symboles leader">
-          <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+          <span class="window-handle">
+            <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+            <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
+          </span>
           <div class="symbol-actions" id="symbol-actions"></div>
           <button class="clear-button icon-clear-button" id="clear-sequence" type="button" title="Effacer" aria-label="Effacer la sequence">
             ${resetSvg()}
           </button>
-          <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
         </nav>
       </main>
     `;
@@ -99,9 +101,11 @@ function createCompactMarkup(targetView) {
     <main class="sequence-stage">
       <section class="sequence-panel is-empty" aria-label="Sequence">
         <div class="sequence-row">
-          <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+          <span class="window-handle">
+            <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+            <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
+          </span>
           <ol class="symbol-sequence overlay" id="sequence" aria-label="Sequence de symboles"></ol>
-          <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
         </div>
         <div class="expiry-track is-hidden" id="expiry-track" aria-hidden="true">
           <span class="expiry-fill" id="expiry-fill"></span>

@@ -7,6 +7,7 @@
   --amber: #ffb000;
   --cyan: #59c9ff;
   --green: #42d483;
+  --question: #d7ff5f;
   --red: #ff6157;
 }
 
@@ -219,9 +220,9 @@ h1 {
 }
 
 .sequence-slot.is-unknown {
-  border-color: rgba(89, 201, 255, 0.42);
-  color: var(--cyan);
-  background: rgba(89, 201, 255, 0.1);
+  border-color: rgba(215, 255, 95, 0.46);
+  color: var(--question);
+  background: rgba(215, 255, 95, 0.09);
 }
 
 .sequence-slot.is-empty {
@@ -288,17 +289,17 @@ h1 {
 }
 
 .symbol-button.is-unknown {
-  color: var(--cyan);
+  color: var(--question);
 }
 
 .symbol-button.is-unknown.is-selected {
-  border-color: rgba(89, 201, 255, 0.54);
-  background: rgba(89, 201, 255, 0.12);
+  border-color: rgba(215, 255, 95, 0.56);
+  background: rgba(215, 255, 95, 0.11);
 }
 
 .unknown-mark {
   font-size: 34px;
-  font-weight: 900;
+  font-weight: 400;
   line-height: 1;
 }
 
@@ -438,14 +439,18 @@ body.palette-body {
   gap: 10px;
 }
 
-.sequence-row {
-  position: relative;
+.window-handle {
+  display: grid;
+  place-items: center;
+  flex: 0 0 18px;
+  align-self: stretch;
+  gap: 2px;
+  color: rgba(246, 241, 231, 0.38);
+  cursor: move;
+  -webkit-app-region: drag;
 }
 
 .compact-client-count {
-  position: absolute;
-  right: 4px;
-  bottom: 4px;
   display: grid;
   place-items: center;
   min-width: 18px;
@@ -456,7 +461,7 @@ body.palette-body {
   color: rgba(246, 241, 231, 0.72);
   background: rgba(0, 0, 0, 0.34);
   font-size: 10px;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1;
   pointer-events: none;
 }
@@ -468,16 +473,12 @@ body.palette-body {
 .drag-grip {
   display: grid;
   place-items: center;
-  flex: 0 0 14px;
-  align-self: stretch;
-  color: rgba(246, 241, 231, 0.38);
-  cursor: move;
-  -webkit-app-region: drag;
+  color: inherit;
 }
 
 .drag-grip svg {
   width: 14px;
-  height: 42px;
+  height: 34px;
   stroke-width: 5;
 }
 
@@ -532,6 +533,14 @@ body.palette-body {
 .palette-body .symbol-button:disabled {
   color: rgba(246, 241, 231, 0.35);
   background: rgba(255, 255, 255, 0.03);
+}
+
+.overlay-body .sequence-slot.is-unknown,
+.palette-body .symbol-button.is-unknown,
+.palette-body .symbol-button.is-unknown.is-selected {
+  border-color: rgba(215, 255, 95, 0.46);
+  color: var(--question);
+  background: rgba(215, 255, 95, 0.09);
 }
 
 .overlay-body .expiry-track {
