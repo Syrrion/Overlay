@@ -365,6 +365,19 @@ function sendDesktopLeaderAction(message) {
     return false;
   }
 
+  if (typeof window.desktopOverlay.sendLeaderActionResult === "function") {
+    window.desktopOverlay.sendLeaderActionResult(message)
+      .then((result) => {
+        if (!result || result.ok !== true) {
+          sendHttpLeaderAction(message);
+        }
+      })
+      .catch(() => {
+        sendHttpLeaderAction(message);
+      });
+    return true;
+  }
+
   return window.desktopOverlay.sendLeaderAction(message) === true;
 }
 

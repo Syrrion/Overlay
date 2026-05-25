@@ -21,5 +21,12 @@ contextBridge.exposeInMainWorld("desktopOverlay", {
 
     ipcRenderer.send("desktop:leader-action", message);
     return true;
+  },
+  sendLeaderActionResult: (message) => {
+    if (!message || typeof message !== "object") {
+      return Promise.resolve({ ok: false, reason: "invalid-message" });
+    }
+
+    return ipcRenderer.invoke("desktop:leader-action", message);
   }
 });

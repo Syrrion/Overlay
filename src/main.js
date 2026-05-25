@@ -137,6 +137,8 @@ ipcMain.on("desktop:leader-action", (_event, message) => {
   sendDesktopLeaderAction(message);
 });
 
+ipcMain.handle("desktop:leader-action", (_event, message) => sendDesktopLeaderActionResult(message));
+
 function createControlWindow() {
   if (controlWindow && !controlWindow.isDestroyed()) {
     controlWindow.show();
@@ -687,22 +689,30 @@ function closeDesktopRelay() {
 }
 
 function sendDesktopLeaderAction(message) {
+  return sendDesktopLeaderActionResult(message).ok;
+}
+
+function sendDesktopLeaderActionResult(message) {
   if (state.role !== "leader") {
-    return false;
+    return { ok: false, reason: "not-leader" };
   }
 
   const actionMessage = normalizeDesktopLeaderAction(message);
   if (!actionMessage) {
-    return false;
+    return { ok: false, reason: "invalid-action" };
   }
 
   if (sendDesktopRelayMessage(actionMessage)) {
-    return true;
+    state.message = "Action envoyee au relais Node";
+    sendStateToWindows();
+    return { ok: true, sent: true, queued: false };
   }
 
   desktopRelayQueue.push(actionMessage);
   connectDesktopRelay();
-  return true;
+  state.message = "Action en attente du relais Node";
+  sendStateToWindows();
+  return { ok: true, sent: false, queued: true };
 }
 
 function sendDesktopRelayMessage(message) {
