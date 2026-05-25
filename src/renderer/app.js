@@ -1,14 +1,3 @@
-const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
-const SYMBOL_NAMES = {
-  cross: "Croix",
-  t: "T",
-  circle: "Rond",
-  diamond: "Losange",
-  triangle: "Triangle"
-};
-
-const params = new URLSearchParams(window.location.search);
-const view = params.get("view") || "control";
 const root = document.getElementById("app");
 const api = window.overlayApi;
 
@@ -16,7 +5,7 @@ let currentState = null;
 let lastError = "";
 let lastRenderKey = "";
 
-document.body.classList.add(view === "sequence" ? "overlay-body" : view === "palette" ? "palette-body" : "control-body");
+document.body.classList.add("control-body");
 
 init();
 
@@ -40,39 +29,14 @@ function render() {
   }
 
   lastRenderKey = renderKey;
-  document.body.classList.toggle("movement-locked", Boolean(currentState.movementLocked));
-
-  if (view === "sequence") {
-    renderSequenceOverlay();
-    return;
-  }
-
-  if (view === "palette") {
-    renderPalette();
-    return;
-  }
-
   renderControl();
 }
 
 function getRenderKey() {
-  const sequenceKey = currentState.sequence.join(",");
-
-  if (view === "sequence") {
-    return [view, currentState.role, sequenceKey, currentState.expiresAt || "", currentState.movementLocked].join("|");
-  }
-
-  if (view === "palette") {
-    return [view, currentState.role, sequenceKey, currentState.movementLocked].join("|");
-  }
-
   return [
-    view,
     currentState.role,
     currentState.connected,
     currentState.movementLocked,
-    sequenceKey,
-    currentState.expiresAt || "",
     currentState.message,
     lastError
   ].join("|");
@@ -103,6 +67,7 @@ function renderControl() {
     root.querySelector("[data-action='stop']").addEventListener("click", async () => {
       lastError = "";
       currentState = await api.stopSession();
+      lastRenderKey = "";
       render();
     });
     return;
@@ -132,7 +97,7 @@ function renderStartControl() {
 
 function renderRunningControl() {
   const roleLabel = currentState.role === "leader" ? "Leader" : "Viewer";
-  const connectionLabel = currentState.connected ? "Connecte" : "En attente";
+  const connectionLabel = currentState.connected ? "Page chargee" : "Chargement";
 
   return `
     <section class="session-panel">
@@ -140,11 +105,6 @@ function renderRunningControl() {
         <span class="role-pill">${roleLabel}</span>
         <span class="connection-dot ${currentState.connected ? "is-on" : ""}"></span>
         <span>${connectionLabel}</span>
-      </div>
-
-      <div class="preview-block">
-        ${renderSequence(currentState.sequence, "preview")}
-        ${renderExpiryBar(currentState)}
       </div>
 
       ${renderMovementLockControl()}
@@ -193,147 +153,6 @@ function renderMovementLockControl() {
       </span>
       <input id="movement-locked" type="checkbox" ${currentState.movementLocked ? "checked" : ""}>
     </label>
-  `;
-}
-
-function renderSequenceOverlay() {
-  if (currentState.role === "idle") {
-    root.innerHTML = "";
-    return;
-  }
-
-  root.innerHTML = `
-    <main class="sequence-stage">
-      <section class="sequence-panel ${currentState.sequence.length ? "is-active" : "is-empty"}" aria-label="Sequence">
-        <div class="sequence-row">
-          <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
-          ${renderSequence(currentState.sequence, "overlay")}
-        </div>
-        ${renderExpiryBar(currentState)}
-      </section>
-    </main>
-  `;
-}
-
-function renderPalette() {
-  if (currentState.role !== "leader") {
-    root.innerHTML = "";
-    return;
-  }
-
-  root.innerHTML = `
-    <main class="palette-stage">
-      <nav class="leader-palette" aria-label="Symboles leader">
-        <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
-        ${SYMBOLS.map((symbol) => renderSymbolButton(symbol)).join("")}
-        <button class="reset-button" data-action="clear" type="button" title="Effacer" aria-label="Effacer la sequence">
-          ${resetSvg()}
-        </button>
-      </nav>
-    </main>
-  `;
-
-  for (const button of root.querySelectorAll("[data-symbol]")) {
-    button.addEventListener("mousedown", (event) => event.preventDefault());
-    button.addEventListener("click", () => api.pickSymbol(button.dataset.symbol));
-  }
-
-  const resetButton = root.querySelector("[data-action='clear']");
-  resetButton.addEventListener("mousedown", (event) => event.preventDefault());
-  resetButton.addEventListener("click", () => api.clearSequence());
-}
-
-function renderSymbolButton(symbol) {
-  const isUsed = currentState.sequence.includes(symbol);
-  const isLocked = currentState.sequence.length >= SYMBOLS.length;
-  return `
-    <button class="symbol-button ${isUsed ? "is-used" : ""}" data-symbol="${symbol}" type="button" title="${SYMBOL_NAMES[symbol]}" aria-label="${SYMBOL_NAMES[symbol]}" ${isUsed || isLocked ? "disabled" : ""}>
-      ${symbolSvg(symbol)}
-    </button>
-  `;
-}
-
-function renderSequence(sequence, variant) {
-  const slots = SYMBOLS.map((_symbol, reverseIndex) => {
-    const index = SYMBOLS.length - 1 - reverseIndex;
-    const selected = sequence[index];
-    return `
-      <li class="sequence-slot ${selected ? "is-filled" : ""}">
-        ${selected ? symbolSvg(selected) : ""}
-      </li>
-    `;
-  }).join("");
-
-  return `<ol class="symbol-sequence ${variant}">${slots}</ol>`;
-}
-
-function renderExpiryBar(state) {
-  if (!state.expiresAt) {
-    return "";
-  }
-
-  const remaining = Math.max(1, state.expiresAt - Date.now());
-  return `
-    <div class="expiry-track" aria-hidden="true">
-      <span class="expiry-fill" style="animation-duration: ${remaining}ms"></span>
-    </div>
-  `;
-}
-
-function symbolSvg(symbol) {
-  if (symbol === "cross") {
-    return `
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <path d="M14 14 34 34M34 14 14 34" />
-      </svg>
-    `;
-  }
-
-  if (symbol === "t") {
-    return `
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <path d="M13 13h22M24 13v25" />
-      </svg>
-    `;
-  }
-
-  if (symbol === "circle") {
-    return `
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <circle cx="24" cy="24" r="14" />
-      </svg>
-    `;
-  }
-
-  if (symbol === "diamond") {
-    return `
-      <svg viewBox="0 0 48 48" aria-hidden="true">
-        <path d="M24 7 41 24 24 41 7 24Z" />
-      </svg>
-    `;
-  }
-
-  return `
-    <svg viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M24 8 41 39H7Z" />
-    </svg>
-  `;
-}
-
-function resetSvg() {
-  return `
-    <svg viewBox="0 0 48 48" aria-hidden="true">
-      <path d="M17 15a13 13 0 1 1-3 14" />
-      <path d="M17 15h-8v-8" />
-    </svg>
-  `;
-}
-
-function dragGripSvg() {
-  return `
-    <svg viewBox="0 0 16 48" aria-hidden="true">
-      <path d="M5 12h.01M11 12h.01M5 24h.01M11 24h.01M5 36h.01M11 36h.01" />
-    </svg>
   `;
 }
 

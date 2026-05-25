@@ -11,10 +11,19 @@ const DEFAULT_AUTO_CLEAR_MS = 20_000;
 const HTTP_POLL_MS = 500;
 
 const params = new URLSearchParams(window.location.search);
-const mode = normalizeMode(params.get("mode") || params.get("role"));
+const view = normalizeView(params.get("view"));
+const mode = view === "palette" ? "leader" : normalizeMode(params.get("mode") || params.get("role"));
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
 const relayUrl = getRelayUrl(params.get("relay"));
 const relayHttpUrl = getRelayHttpUrl(relayUrl);
+const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
+const sourceId = createSourceId();
+
+if (view !== "page") {
+  document.body.innerHTML = createCompactMarkup(view);
+}
+
+document.body.classList.add(view === "overlay" ? "overlay-body" : view === "palette" ? "palette-body" : "viewer-body");
 
 const elements = {
   clearSequence: document.getElementById("clear-sequence"),
@@ -36,11 +45,15 @@ const state = {
   connected: false,
   httpConnected: false,
   expiresAt: null,
+  pendingSourceRevision: 0,
   publishing: false,
+  revision: 0,
   sequence: []
 };
 
+let didResetOnJoin = false;
 let expiryTimer = null;
+let localSourceRevision = 0;
 let pollInFlight = false;
 let pollTimer = null;
 let reconnectTimer = null;
@@ -51,28 +64,68 @@ document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 configureModeUi();
 renderSequence();
 renderLeaderControls();
+syncExpiryBar();
 setStatus("Connexion au relais...", "pending");
-connectReader();
+connectRelay();
 startHttpPolling();
 
-function configureModeUi() {
-  elements.modeEyebrow.textContent = mode === "leader" ? "Leader Web" : "Viewer Web";
-  elements.modeCopy.textContent = mode === "leader"
-    ? "Pilote la sequence depuis le navigateur et synchronise les viewers en direct."
-    : "Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.";
-
-  elements.leaderControls.classList.toggle("is-hidden", mode !== "leader");
-  elements.viewerMode.classList.toggle("is-active", mode === "viewer");
-  elements.leaderMode.classList.toggle("is-active", mode === "leader");
-  elements.viewerMode.setAttribute("aria-pressed", String(mode === "viewer"));
-  elements.leaderMode.setAttribute("aria-pressed", String(mode === "leader"));
-
-  elements.viewerMode.addEventListener("click", () => switchMode("viewer"));
-  elements.leaderMode.addEventListener("click", () => switchMode("leader"));
-  elements.clearSequence.addEventListener("click", clearLeaderSequence);
+if (shouldResetOnJoin) {
+  window.setTimeout(resetLeaderStateOnce, 250);
 }
 
-function connectReader() {
+function createCompactMarkup(targetView) {
+  if (targetView === "palette") {
+    return `
+      <main class="palette-stage">
+        <nav class="leader-palette" id="leader-controls" aria-label="Symboles leader">
+          <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+          <div class="symbol-actions" id="symbol-actions"></div>
+          <button class="clear-button icon-clear-button" id="clear-sequence" type="button" title="Effacer" aria-label="Effacer la sequence">
+            ${resetSvg()}
+          </button>
+        </nav>
+      </main>
+    `;
+  }
+
+  return `
+    <main class="sequence-stage">
+      <section class="sequence-panel is-empty" aria-label="Sequence">
+        <div class="sequence-row">
+          <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
+          <ol class="symbol-sequence overlay" id="sequence" aria-label="Sequence de symboles"></ol>
+        </div>
+        <div class="expiry-track is-hidden" id="expiry-track" aria-hidden="true">
+          <span class="expiry-fill" id="expiry-fill"></span>
+        </div>
+      </section>
+    </main>
+  `;
+}
+
+function configureModeUi() {
+  if (view === "page") {
+    elements.modeEyebrow.textContent = mode === "leader" ? "Leader Web" : "Viewer Web";
+    elements.modeCopy.textContent = mode === "leader"
+      ? "Pilote la sequence depuis le navigateur et synchronise les viewers en direct."
+      : "Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.";
+
+    elements.leaderControls.classList.toggle("is-hidden", mode !== "leader");
+    elements.viewerMode.classList.toggle("is-active", mode === "viewer");
+    elements.leaderMode.classList.toggle("is-active", mode === "leader");
+    elements.viewerMode.setAttribute("aria-pressed", String(mode === "viewer"));
+    elements.leaderMode.setAttribute("aria-pressed", String(mode === "leader"));
+
+    elements.viewerMode.addEventListener("click", () => switchMode("viewer"));
+    elements.leaderMode.addEventListener("click", () => switchMode("leader"));
+  }
+
+  if (elements.clearSequence) {
+    elements.clearSequence.addEventListener("click", clearLeaderSequence);
+  }
+}
+
+function connectRelay() {
   clearTimeout(reconnectTimer);
   reconnectTimer = null;
 
@@ -87,6 +140,7 @@ function connectReader() {
     state.connected = true;
     setStatus("Connecté", "connected");
     sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
+    resetLeaderStateOnce();
   });
 
   socket.addEventListener("message", (event) => {
@@ -98,7 +152,7 @@ function connectReader() {
     if (!state.httpConnected) {
       setStatus("Relais deconnecte. Reconnexion...", "pending");
     }
-    reconnectTimer = window.setTimeout(connectReader, 2000);
+    reconnectTimer = window.setTimeout(connectRelay, 2000);
   });
 
   socket.addEventListener("error", () => {
@@ -134,10 +188,7 @@ async function pollRoomState() {
       setStatus("Connecté", "connected");
     }
 
-    const message = await response.json();
-    if (!(mode === "leader" && state.publishing)) {
-      applyStateMessage(message);
-    }
+    applyStateMessage(await response.json());
   } catch (_error) {
     state.httpConnected = false;
     if (!state.connected) {
@@ -166,7 +217,7 @@ function handleMessage(rawMessage) {
     return;
   }
 
-  if (message.type !== "state" || (mode === "leader" && state.publishing)) {
+  if (message.type !== "state") {
     return;
   }
 
@@ -174,6 +225,19 @@ function handleMessage(rawMessage) {
 }
 
 function applyStateMessage(message) {
+  const revision = normalizeRevision(message.revision);
+  if (revision && state.revision && revision < state.revision) {
+    return;
+  }
+
+  if (state.publishing && isOlderThanPendingPublish(message)) {
+    return;
+  }
+
+  if (revision) {
+    state.revision = revision;
+  }
+
   state.sequence = filterSequence(message.sequence);
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
   state.autoClearMs = Number.isFinite(message.autoClearMs) ? message.autoClearMs : DEFAULT_AUTO_CLEAR_MS;
@@ -184,6 +248,10 @@ function applyStateMessage(message) {
 }
 
 function renderSequence() {
+  if (!elements.sequence) {
+    return;
+  }
+
   elements.sequence.innerHTML = SYMBOLS.map((_symbol, reverseIndex) => {
     const index = SYMBOLS.length - 1 - reverseIndex;
     const selected = state.sequence[index];
@@ -194,10 +262,16 @@ function renderSequence() {
       </li>
     `;
   }).join("");
+
+  const sequencePanel = document.querySelector(".sequence-panel");
+  if (sequencePanel) {
+    sequencePanel.classList.toggle("is-active", state.sequence.length > 0);
+    sequencePanel.classList.toggle("is-empty", state.sequence.length === 0);
+  }
 }
 
 function renderLeaderControls() {
-  if (mode !== "leader") {
+  if (mode !== "leader" || !elements.symbolActions) {
     return;
   }
 
@@ -213,10 +287,13 @@ function renderLeaderControls() {
   }).join("");
 
   for (const button of elements.symbolActions.querySelectorAll("[data-symbol]")) {
+    button.addEventListener("mousedown", (event) => event.preventDefault());
     button.addEventListener("click", () => handleLeaderSymbol(button.dataset.symbol));
   }
 
-  elements.clearSequence.disabled = state.sequence.length === 0 || state.publishing;
+  if (elements.clearSequence) {
+    elements.clearSequence.disabled = state.sequence.length === 0 || state.publishing;
+  }
 }
 
 function handleLeaderSymbol(symbol) {
@@ -257,12 +334,31 @@ function clearLeaderSequence() {
   syncExpiryBar();
 }
 
+function resetLeaderStateOnce() {
+  if (!shouldResetOnJoin || didResetOnJoin || mode !== "leader") {
+    return;
+  }
+
+  didResetOnJoin = true;
+  state.sequence = [];
+  state.expiresAt = null;
+  publishLeaderState();
+  renderSequence();
+  renderLeaderControls();
+  syncExpiryBar();
+}
+
 async function publishLeaderState() {
+  const sourceRevision = nextLocalSourceRevision();
+  state.pendingSourceRevision = sourceRevision;
+
   const message = {
     type: "state",
     room,
     sequence: state.sequence,
     expiresAt: state.expiresAt,
+    sourceId,
+    sourceRevision,
     autoClearMs: DEFAULT_AUTO_CLEAR_MS
   };
 
@@ -287,9 +383,16 @@ async function publishLeaderState() {
     setStatus("Connecté", "connected");
     applyStateMessage(await response.json());
   } catch (error) {
-    setStatus(`Publication impossible: ${error.message}`, "error");
+    if (state.connected) {
+      setStatus("Publication WebSocket envoyee. Confirmation HTTP en attente...", "pending");
+    } else {
+      setStatus(`Publication impossible: ${error.message}`, "error");
+    }
   } finally {
     state.publishing = false;
+    if (state.pendingSourceRevision === sourceRevision) {
+      state.pendingSourceRevision = 0;
+    }
     renderLeaderControls();
   }
 }
@@ -297,6 +400,10 @@ async function publishLeaderState() {
 function syncExpiryBar() {
   clearInterval(expiryTimer);
   expiryTimer = null;
+
+  if (!elements.expiryTrack || !elements.expiryFill) {
+    return;
+  }
 
   if (!state.expiresAt) {
     elements.expiryTrack.classList.add("is-hidden");
@@ -310,6 +417,12 @@ function syncExpiryBar() {
 }
 
 function updateExpiryBar() {
+  if (!elements.expiryTrack || !elements.expiryFill) {
+    clearInterval(expiryTimer);
+    expiryTimer = null;
+    return;
+  }
+
   if (!state.expiresAt) {
     elements.expiryTrack.classList.add("is-hidden");
     elements.expiryFill.style.transform = "scaleX(0)";
@@ -330,6 +443,10 @@ function updateExpiryBar() {
 }
 
 function setStatus(message, variant) {
+  if (!elements.statusText || !elements.statusPill) {
+    return;
+  }
+
   elements.statusText.textContent = message;
   elements.statusPill.className = "status-pill";
 
@@ -371,6 +488,33 @@ function filterSequence(sequence) {
   return result.slice(0, SYMBOLS.length);
 }
 
+function normalizeRevision(value) {
+  const revision = Number(value);
+  return Number.isFinite(revision) && revision > 0 ? revision : 0;
+}
+
+function nextLocalSourceRevision() {
+  localSourceRevision += 1;
+  return localSourceRevision;
+}
+
+function isOlderThanPendingPublish(message) {
+  if (!state.pendingSourceRevision) {
+    return false;
+  }
+
+  return message.sourceId !== sourceId || normalizeRevision(message.sourceRevision) < state.pendingSourceRevision;
+}
+
+function createSourceId() {
+  if (window.crypto?.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+
+  const randomPart = Math.random().toString(36).slice(2);
+  return `src-${Date.now().toString(36)}-${randomPart}`;
+}
+
 function normalizeRoom(value) {
   const candidate = String(value || "").trim().toLowerCase();
   return /^[a-z0-9_-]{3,48}$/.test(candidate) ? candidate : "";
@@ -380,13 +524,26 @@ function normalizeMode(value) {
   return value === "leader" ? "leader" : "viewer";
 }
 
+function normalizeView(value) {
+  if (value === "palette") {
+    return "palette";
+  }
+
+  if (value === "overlay" || value === "sequence") {
+    return "overlay";
+  }
+
+  return "page";
+}
+
 function switchMode(nextMode) {
-  if (nextMode === mode) {
+  if (view !== "page" || nextMode === mode) {
     return;
   }
 
   const nextUrl = new URL(window.location.href);
   nextUrl.searchParams.delete("role");
+  nextUrl.searchParams.delete("reset");
   if (nextMode === "leader") {
     nextUrl.searchParams.set("mode", "leader");
   } else {
@@ -462,6 +619,23 @@ function symbolSvg(symbol) {
   return `
     <svg viewBox="0 0 48 48" aria-hidden="true">
       <path d="M24 8 41 39H7Z" />
+    </svg>
+  `;
+}
+
+function resetSvg() {
+  return `
+    <svg viewBox="0 0 48 48" aria-hidden="true">
+      <path d="M17 15a13 13 0 1 1-3 14" />
+      <path d="M17 15h-8v-8" />
+    </svg>
+  `;
+}
+
+function dragGripSvg() {
+  return `
+    <svg viewBox="0 0 16 48" aria-hidden="true">
+      <path d="M5 12h.01M11 12h.01M5 24h.01M11 24h.01M5 36h.01M11 36h.01" />
     </svg>
   `;
 }

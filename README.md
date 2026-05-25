@@ -1,16 +1,17 @@
 # Ura Helper
 
-Petit overlay Electron pour partager un ordre de cinq symboles entre un leader et des viewers, avec un viewer web consultable par URL.
+Petit overlay Electron pour partager un ordre de cinq symboles entre un leader et des viewers, avec une page web consultable par URL.
 
 ## Solution choisie
 
 - Electron pour creer des fenetres transparentes, toujours au-dessus, sans bordure.
 - `focusable: false` et `showInactive()` pour eviter que les clics overlay volent le focus de la fenetre active.
-- Un relais WebSocket dedie recoit l'etat du leader et le diffuse aux viewers via une configuration integree non exposee dans l'interface.
+- Un relais WebSocket dedie recoit l'etat du leader, lui attribue une revision serveur et le diffuse aux viewers.
 - Le leader et les viewers affichent une petite fenetre overlay de sequence, deplacable et sauvegardee localement.
-- Le leader a en plus une palette d'icones deplacable, separee de l'affichage.
+- Les fenetres overlay et palette chargent directement la page web servie par le relais; le client web est donc la reference de rendu et de synchronisation.
+- Le leader a en plus une palette d'icones deplacable, separee de l'affichage, elle aussi chargee depuis la page web.
 - Une option permet de verrouiller le deplacement des overlays.
-- Le relais sert aussi une interface web viewer statique accessible directement depuis une URL.
+- Le relais sert aussi une interface web statique accessible directement depuis une URL, en mode viewer ou leader.
 
 ## Installation locale
 
@@ -35,9 +36,9 @@ PORT=8787 npm run relay
 
 Expose ensuite ce service en WebSocket, par exemple `wss://ura.syrion.site`. Si tu passes par Nginx ou Caddy, il faut garder l'upgrade WebSocket actif vers le port du relais.
 
-## Viewer web
+## Page web
 
-Une fois le relais lance, le viewer web est servi sur la meme URL HTTP.
+Une fois le relais lance, la page web est servie sur la meme URL HTTP.
 
 - En local: `http://127.0.0.1:8787/`
 - Derriere ton domaine: `https://ton-domaine/`
@@ -48,11 +49,16 @@ Parametres utiles:
 
 - `?room=autre-salon` pour consulter un autre salon
 - `?relay=wss://ura.syrion.site` si la page statique est hebergee ailleurs que le relais
+- `?mode=leader` pour piloter la sequence depuis le navigateur
+- `?view=overlay` pour charger la vue compacte d'affichage utilisee par Electron
+- `?view=palette&mode=leader` pour charger la palette compacte utilisee par Electron
 
 Exemples:
 
 - `https://ton-domaine/?room=raid-alpha`
 - `https://viewer.ton-domaine/?room=raid-alpha&relay=wss://ura.syrion.site`
+- `https://ton-domaine/?mode=leader&room=raid-alpha`
+- `https://ton-domaine/?view=overlay&room=raid-alpha`
 
 ## Utilisation
 
@@ -69,7 +75,7 @@ Exemples:
 - Pour les jeux, utiliser de preference le mode fenetre sans bordure. Certains jeux en plein ecran exclusif DirectX peuvent rester au-dessus de tout overlay desktop.
 - Le relais fourni ne gere pas encore d'authentification. Si tu l'exposes publiquement, ajoute un token ou filtre l'acces au niveau du proxy.
 - Les positions des overlays sont sauvegardees dans les donnees utilisateur de l'application.
-- Le viewer web est volontairement consultatif. Le pilotage Leader reste dans le client lourd pour l'instant.
+- Les etats publies portent un identifiant de source et une revision serveur pour eviter qu'une reponse HTTP ou WebSocket plus ancienne ecrase un etat recent.
 
 ## Verification rapide
 

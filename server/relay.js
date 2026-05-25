@@ -22,6 +22,7 @@ const MIME_TYPES = {
 const rooms = new Map();
 const metrics = {
   httpStateUpdates: 0,
+  ignoredStaleStateUpdates: 0,
   stateWriteErrors: 0,
   stateWrites: 0,
   websocketConnections: 0,
@@ -29,6 +30,7 @@ const metrics = {
   websocketStateUpdates: 0,
   lastStateWriteError: ""
 };
+let serverRevision = Date.now() * 1000;
 const sharedStatePoller = setInterval(syncRoomsFromSharedState, STATE_POLL_MS);
 sharedStatePoller.unref?.();
 
@@ -143,14 +145,16 @@ function handleApiRequest(request, response, requestUrl) {
   if (request.method === "POST" && requestUrl.pathname.endsWith("/state")) {
     readJsonBody(request, response, (message) => {
       const room = getRoom(roomName);
-      room.sequence = filterSequence(message.sequence);
-      room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
-      room.updatedAt = Date.now();
-
       metrics.httpStateUpdates += 1;
-      persistRoomState(room);
-      scheduleRoomClear(roomName, room);
-      broadcastRoomState(room);
+
+      if (applyIncomingRoomState(room, message)) {
+        persistRoomState(room);
+        scheduleRoomClear(roomName, room);
+        broadcastRoomState(room);
+      } else {
+        metrics.ignoredStaleStateUpdates += 1;
+      }
+
       sendJson(response, 200, createStateMessage(room));
     });
     return;
@@ -201,6 +205,9 @@ function getRoomStateMessage(roomName) {
     name: roomName,
     sequence: [],
     expiresAt: null,
+    revision: 0,
+    sourceId: "",
+    sourceRevision: 0,
     updatedAt: 0
   };
 
@@ -241,10 +248,14 @@ function updateRoomState(socket, message) {
   }
 
   const room = getRoom(socket.room);
-  room.sequence = filterSequence(message.sequence);
-  room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
-  room.updatedAt = Date.now();
   metrics.websocketStateUpdates += 1;
+
+  if (!applyIncomingRoomState(room, message)) {
+    metrics.ignoredStaleStateUpdates += 1;
+    sendRoomState(socket, room);
+    return;
+  }
+
   persistRoomState(room);
   scheduleRoomClear(socket.room, room);
   broadcastRoomState(room);
@@ -274,6 +285,9 @@ function getRoom(roomName) {
       clients: new Set(),
       sequence: [],
       expiresAt: null,
+      revision: 0,
+      sourceId: "",
+      sourceRevision: 0,
       clearTimer: null,
       updatedAt: 0
     });
@@ -298,6 +312,7 @@ function scheduleRoomClear(roomName, room) {
 
     currentRoom.sequence = [];
     currentRoom.expiresAt = null;
+    currentRoom.revision = nextServerRevision(currentRoom.revision);
     currentRoom.updatedAt = Date.now();
     persistRoomState(currentRoom);
     broadcastRoomState(currentRoom);
@@ -323,9 +338,10 @@ function syncRoomsFromSharedState() {
 }
 
 function isNewerRoomState(room, storedRoom) {
-  return Number(storedRoom.updatedAt || 0) > Number(room.updatedAt || 0)
-    || JSON.stringify(storedRoom.sequence || []) !== JSON.stringify(room.sequence || [])
-    || normalizeExpiresAt(storedRoom.expiresAt) !== normalizeExpiresAt(room.expiresAt);
+  const storedRevision = normalizeRevision(storedRoom.revision) || normalizeRevision(storedRoom.updatedAt);
+  const roomRevision = normalizeRevision(room.revision) || normalizeRevision(room.updatedAt);
+
+  return storedRevision > roomRevision;
 }
 
 function applyRoomState(room, storedRoom) {
@@ -334,7 +350,32 @@ function applyRoomState(room, storedRoom) {
 
   room.sequence = expired ? [] : filterSequence(storedRoom.sequence);
   room.expiresAt = expiresAt;
+  room.revision = normalizeRevision(storedRoom.revision) || normalizeRevision(storedRoom.updatedAt);
+  room.sourceId = normalizeSourceId(storedRoom.sourceId);
+  room.sourceRevision = normalizeRevision(storedRoom.sourceRevision);
   room.updatedAt = Number(storedRoom.updatedAt || Date.now());
+}
+
+function applyIncomingRoomState(room, message) {
+  const incomingSourceId = normalizeSourceId(message.sourceId);
+  const incomingSourceRevision = normalizeRevision(message.sourceRevision);
+
+  if (
+    incomingSourceId
+    && incomingSourceId === room.sourceId
+    && incomingSourceRevision
+    && incomingSourceRevision <= normalizeRevision(room.sourceRevision)
+  ) {
+    return false;
+  }
+
+  room.sequence = filterSequence(message.sequence);
+  room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
+  room.revision = nextServerRevision(room.revision);
+  room.sourceId = incomingSourceId || room.sourceId;
+  room.sourceRevision = incomingSourceRevision || 0;
+  room.updatedAt = Date.now();
+  return true;
 }
 
 function persistRoomState(room) {
@@ -342,6 +383,9 @@ function persistRoomState(room) {
   store.rooms[room.name] = {
     sequence: filterSequence(room.sequence),
     expiresAt: normalizeExpiresAt(room.expiresAt),
+    revision: normalizeRevision(room.revision),
+    sourceId: normalizeSourceId(room.sourceId),
+    sourceRevision: normalizeRevision(room.sourceRevision),
     updatedAt: Number(room.updatedAt || Date.now())
   };
   store.updatedAt = Date.now();
@@ -445,6 +489,10 @@ function createStateMessage(room) {
     room: room.name,
     sequence: room.sequence,
     expiresAt: room.expiresAt,
+    revision: normalizeRevision(room.revision),
+    sourceId: normalizeSourceId(room.sourceId),
+    sourceRevision: normalizeRevision(room.sourceRevision),
+    updatedAt: Number(room.updatedAt || Date.now()),
     autoClearMs: AUTO_CLEAR_MS
   };
 }
@@ -468,6 +516,22 @@ function filterSequence(sequence) {
   }
 
   return result.slice(0, SYMBOLS.length);
+}
+
+function normalizeRevision(value) {
+  const revision = Number(value);
+  return Number.isFinite(revision) && revision > 0 ? revision : 0;
+}
+
+function normalizeSourceId(value) {
+  const sourceId = String(value || "").trim();
+  return /^[a-z0-9_-]{8,80}$/i.test(sourceId) ? sourceId : "";
+}
+
+function nextServerRevision(currentRevision = 0) {
+  const timeRevision = Date.now() * 1000;
+  serverRevision = Math.max(serverRevision + 1, timeRevision, normalizeRevision(currentRevision) + 1);
+  return serverRevision;
 }
 
 function normalizeRoom(value) {

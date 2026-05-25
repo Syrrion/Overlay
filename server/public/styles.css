@@ -357,3 +357,140 @@ svg {
     border-radius: 14px;
   }
 }
+
+body.overlay-body,
+body.palette-body {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+  background: transparent;
+  user-select: none;
+}
+
+.overlay-body button,
+.palette-body button {
+  -webkit-app-region: no-drag;
+}
+
+.sequence-stage,
+.palette-stage {
+  display: grid;
+  place-items: center;
+  width: 100vw;
+  height: 100vh;
+}
+
+.sequence-panel,
+.leader-palette {
+  border: 1px solid rgba(246, 241, 231, 0.18);
+  border-radius: 8px;
+  background: rgba(16, 17, 20, 0.96);
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px);
+  -webkit-app-region: no-drag;
+}
+
+.sequence-panel {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.sequence-panel.is-empty {
+  opacity: 0.64;
+}
+
+.sequence-row,
+.leader-palette,
+.palette-body .symbol-actions,
+.overlay-body .symbol-sequence {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.leader-palette {
+  padding: 10px;
+}
+
+.drag-grip {
+  display: grid;
+  place-items: center;
+  flex: 0 0 14px;
+  align-self: stretch;
+  color: rgba(246, 241, 231, 0.38);
+  cursor: move;
+  -webkit-app-region: drag;
+}
+
+.drag-grip svg {
+  width: 14px;
+  height: 42px;
+  stroke-width: 5;
+}
+
+.overlay-body .symbol-sequence {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  -webkit-app-region: no-drag;
+}
+
+.overlay-body .sequence-slot,
+.palette-body .symbol-button,
+.palette-body .clear-button {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  min-height: 0;
+  aspect-ratio: auto;
+  border-radius: 8px;
+}
+
+.overlay-body .sequence-slot {
+  border: 1px solid rgba(246, 241, 231, 0.14);
+  color: rgba(246, 241, 231, 0.95);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.palette-body .symbol-actions {
+  grid-template-columns: none;
+}
+
+.palette-body .symbol-button,
+.palette-body .clear-button {
+  border: 1px solid rgba(246, 241, 231, 0.17);
+  padding: 0;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.palette-body .clear-button {
+  color: var(--red);
+}
+
+.palette-body .symbol-button:hover:not(:disabled),
+.palette-body .clear-button:hover:not(:disabled) {
+  border-color: rgba(255, 176, 0, 0.72);
+  background: rgba(255, 176, 0, 0.2);
+}
+
+.palette-body .symbol-button.is-selected,
+.palette-body .symbol-button:disabled {
+  color: rgba(246, 241, 231, 0.35);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.overlay-body .expiry-track {
+  height: 4px;
+}
+
+.overlay-body svg,
+.palette-body svg {
+  width: 68%;
+  height: 68%;
+}

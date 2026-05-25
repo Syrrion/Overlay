@@ -1,13 +1,9 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { WebSocket } = require("ws");
 
 const DEFAULT_SERVER_URL = "ura.syrion.site";
 const DEFAULT_ROOM = "ura-helper";
-const AUTO_CLEAR_MS = 20_000;
-const HTTP_POLL_MS = 500;
-const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
   palette: { width: 486, height: 96 }
@@ -27,21 +23,12 @@ const OPACITY_MENU_OPTIONS = [0.5, 0.6, 0.7, 0.8, 0.9, 1];
 let controlWindow = null;
 let sequenceWindow = null;
 let paletteWindow = null;
-let sessionSocket = null;
-let reconnectTimer = null;
-let expiryTimer = null;
-let httpPollTimer = null;
-let httpPollInFlight = false;
-let httpStateConnected = false;
 let saveSettingsTimer = null;
-let lastHttpPublishError = "";
 let settings = {};
 let suppressManagedWindowCloseQuit = false;
 
 const state = {
   role: "idle",
-  sequence: [],
-  expiresAt: null,
   connected: false,
   serverUrl: DEFAULT_SERVER_URL,
   room: DEFAULT_ROOM,
@@ -100,12 +87,7 @@ ipcMain.handle("session:start", (_event, options = {}) => {
     state.serverUrl = serverUrl;
     state.room = room;
     state.connected = false;
-    state.message = "Connexion au relais web...";
-
-    connectSession(serverUrl, room, role);
-    if (role === "reader") {
-      startHttpStatePolling(serverUrl, room);
-    }
+    state.message = "Chargement de la page web...";
 
     createSequenceWindow();
 
@@ -142,16 +124,6 @@ ipcMain.handle("window:setScale", (_event, target, scale) => {
 
   setWindowScale(windowKey, nextScale);
   return serializeState();
-});
-
-ipcMain.on("leader:symbol", (_event, symbol) => {
-  handleLeaderSymbol(symbol);
-});
-
-ipcMain.on("leader:clear", () => {
-  if (state.role === "leader") {
-    clearSequence({ broadcast: true });
-  }
 });
 
 function createControlWindow() {
@@ -208,9 +180,9 @@ function createSequenceWindow() {
     skipTaskbar: true,
     acceptFirstMouse: true,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
 
@@ -221,9 +193,7 @@ function createSequenceWindow() {
   applyOverlayOpacity();
   applyWindowScale("sequence");
 
-  sequenceWindow.loadFile(path.join(__dirname, "renderer", "index.html"), {
-    query: { view: "sequence" }
-  });
+  loadManagedWebApp(sequenceWindow, "overlay", "viewer");
 
   sequenceWindow.once("ready-to-show", () => {
     if (!sequenceWindow || sequenceWindow.isDestroyed()) {
@@ -262,9 +232,9 @@ function createPaletteWindow() {
     skipTaskbar: true,
     acceptFirstMouse: true,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      sandbox: true
     }
   });
 
@@ -275,9 +245,7 @@ function createPaletteWindow() {
   applyOverlayOpacity();
   applyWindowScale("palette");
 
-  paletteWindow.loadFile(path.join(__dirname, "renderer", "index.html"), {
-    query: { view: "palette" }
-  });
+  loadManagedWebApp(paletteWindow, "palette", "leader", { reset: true });
 
   paletteWindow.once("ready-to-show", () => {
     if (!paletteWindow || paletteWindow.isDestroyed()) {
@@ -551,79 +519,46 @@ function saveWindowBounds(key, window) {
   scheduleSettingsSave();
 }
 
-function connectSession(serverUrl, room, role) {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
+function loadManagedWebApp(window, view, mode, options = {}) {
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
-  const socket = new WebSocket(serverUrl);
-  sessionSocket = socket;
+  window.webContents.on("did-finish-load", () => {
+    if (state.role !== "idle") {
+      state.connected = true;
+      state.message = "Page web chargee";
+      sendStateToWindows();
+    }
+  });
 
-  socket.on("open", () => {
-    if (sessionSocket !== socket) {
+  window.webContents.on("did-fail-load", (_event, errorCode, errorDescription) => {
+    if (errorCode === -3 || state.role === "idle") {
       return;
     }
 
-    state.connected = true;
-    state.message = "Connecté";
-    sendSocket(socket, { type: "join", role, room });
-
-    if (role === "leader") {
-      sendStateToServer(socket);
-    }
-
+    state.connected = false;
+    state.message = `Chargement web impossible: ${errorDescription}`;
     sendStateToWindows();
   });
 
-  socket.on("message", (data) => {
-    if (sessionSocket === socket) {
-      handleServerMessage(data);
-    }
-  });
+  window.loadURL(buildWebAppUrl(view, mode, options));
+}
 
-  socket.on("close", () => {
-    if (sessionSocket !== socket || state.role === "idle") {
-      return;
-    }
+function buildWebAppUrl(view, mode, options = {}) {
+  const url = new URL(getRelayHttpUrl(state.serverUrl));
+  url.searchParams.set("view", view);
+  url.searchParams.set("mode", mode);
+  url.searchParams.set("room", state.room);
+  url.searchParams.set("relay", state.serverUrl);
 
-    sessionSocket = null;
-    state.connected = role === "reader" && httpStateConnected;
-    state.message = state.connected ? "Connecté" : "Relais deconnecte. Reconnexion...";
-    sendStateToWindows();
-    reconnectTimer = setTimeout(() => {
-      if (state.role !== "idle") {
-        connectSession(serverUrl, room, role);
-      }
-    }, 2000);
-  });
+  if (options.reset) {
+    url.searchParams.set("reset", "1");
+  }
 
-  socket.on("error", (error) => {
-    if (sessionSocket !== socket || state.role === "idle") {
-      return;
-    }
-
-    state.connected = role === "reader" && httpStateConnected;
-    state.message = state.connected ? "Connecté" : `Connexion impossible: ${error.message}`;
-    sendStateToWindows();
-  });
+  return url.toString();
 }
 
 function stopSession({ notify = true } = {}) {
-  clearTimeout(reconnectTimer);
-  clearTimeout(expiryTimer);
-  stopHttpStatePolling();
-  reconnectTimer = null;
-  expiryTimer = null;
-
-  if (sessionSocket) {
-    const socket = sessionSocket;
-    sessionSocket = null;
-    socket.removeAllListeners();
-    socket.close();
-  }
-
   state.role = "idle";
-  state.sequence = [];
-  state.expiresAt = null;
   state.connected = false;
   state.serverUrl = normalizeServerUrl(DEFAULT_SERVER_URL);
   state.room = DEFAULT_ROOM;
@@ -639,198 +574,6 @@ function stopSession({ notify = true } = {}) {
   }
 }
 
-function handleServerMessage(data) {
-  let message = null;
-  try {
-    message = JSON.parse(data.toString());
-  } catch (_error) {
-    return;
-  }
-
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  if (message.type === "state") {
-    applyRemoteState(message);
-    return;
-  }
-
-  if (message.type === "error" && typeof message.message === "string") {
-    state.message = message.message;
-    sendStateToWindows();
-  }
-}
-
-function applyRemoteState(message) {
-  state.sequence = filterSequence(message.sequence);
-  state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
-  scheduleExpiryTimer();
-  sendStateToWindows();
-}
-
-function startHttpStatePolling(serverUrl, room) {
-  stopHttpStatePolling();
-  pollRemoteState(serverUrl, room);
-  httpPollTimer = setInterval(() => {
-    pollRemoteState(serverUrl, room);
-  }, HTTP_POLL_MS);
-}
-
-function stopHttpStatePolling() {
-  clearInterval(httpPollTimer);
-  httpPollTimer = null;
-  httpPollInFlight = false;
-  httpStateConnected = false;
-}
-
-async function pollRemoteState(serverUrl, room) {
-  if (httpPollInFlight || state.role !== "reader" || typeof fetch !== "function") {
-    return;
-  }
-
-  httpPollInFlight = true;
-  try {
-    const response = await fetch(`${getRelayHttpUrl(serverUrl)}/api/rooms/${encodeURIComponent(room)}`, {
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    if (state.role !== "reader") {
-      return;
-    }
-
-    httpStateConnected = true;
-    state.connected = true;
-    state.message = "Connecté";
-    applyRemoteState(await response.json());
-  } catch (error) {
-    httpStateConnected = false;
-    if (state.role === "reader" && !state.connected) {
-      state.message = `Lecture HTTP impossible: ${error.message}`;
-      sendStateToWindows();
-    }
-  } finally {
-    httpPollInFlight = false;
-  }
-}
-
-function handleLeaderSymbol(symbol) {
-  if (state.role !== "leader") {
-    return;
-  }
-
-  if (!SYMBOLS.includes(symbol) || state.sequence.includes(symbol) || state.sequence.length >= SYMBOLS.length) {
-    return;
-  }
-
-  const nextSequence = [...state.sequence, symbol];
-  if (nextSequence.length === SYMBOLS.length - 1) {
-    const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
-    if (lastSymbol) {
-      nextSequence.push(lastSymbol);
-    }
-  }
-
-  state.sequence = nextSequence;
-  state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
-  scheduleExpiryTimer();
-  sendStateToServer();
-  sendStateToWindows();
-}
-
-function clearSequence({ broadcast = false } = {}) {
-  clearTimeout(expiryTimer);
-  expiryTimer = null;
-  state.sequence = [];
-  state.expiresAt = null;
-
-  if (broadcast) {
-    sendStateToServer();
-  }
-
-  sendStateToWindows();
-}
-
-function scheduleExpiryTimer() {
-  clearTimeout(expiryTimer);
-  expiryTimer = null;
-
-  if (!state.expiresAt) {
-    return;
-  }
-
-  const delay = Math.max(0, state.expiresAt - Date.now());
-  expiryTimer = setTimeout(() => {
-    state.sequence = [];
-    state.expiresAt = null;
-
-    if (state.role === "leader") {
-      sendStateToServer();
-    }
-
-    sendStateToWindows();
-  }, delay);
-}
-
-function sendStateToServer(socket = sessionSocket) {
-  const message = {
-    type: "state",
-    room: state.room,
-    sequence: state.sequence,
-    expiresAt: state.expiresAt,
-    autoClearMs: AUTO_CLEAR_MS
-  };
-
-  sendSocket(socket, message);
-  publishStateToServer(message);
-}
-
-function sendSocket(socket, message) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return;
-  }
-
-  socket.send(JSON.stringify(message));
-}
-
-async function publishStateToServer(message) {
-  if (state.role !== "leader" || typeof fetch !== "function") {
-    return;
-  }
-
-  try {
-    const response = await fetch(`${getRelayHttpUrl(state.serverUrl)}/api/rooms/${encodeURIComponent(state.room)}/state`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(message)
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    if (lastHttpPublishError) {
-      lastHttpPublishError = "";
-      if (!state.connected) {
-        state.message = "Publication HTTP active.";
-        sendStateToWindows();
-      }
-    }
-  } catch (error) {
-    lastHttpPublishError = error.message;
-    if (!state.connected) {
-      state.message = `Publication HTTP impossible: ${error.message}`;
-      sendStateToWindows();
-    }
-  }
-}
-
 function getRelayHttpUrl(value) {
   const url = new URL(value);
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
@@ -839,7 +582,7 @@ function getRelayHttpUrl(value) {
 
 function sendStateToWindows() {
   const payload = serializeState();
-  for (const window of [controlWindow, sequenceWindow, paletteWindow]) {
+  for (const window of [controlWindow]) {
     if (window && !window.isDestroyed()) {
       window.webContents.send("state:update", payload);
     }
@@ -849,31 +592,12 @@ function sendStateToWindows() {
 function serializeState() {
   return {
     role: state.role,
-    sequence: [...state.sequence],
-    expiresAt: state.expiresAt,
     connected: state.connected,
     message: state.message,
     movementLocked: state.movementLocked,
     overlayOpacity: state.overlayOpacity,
-    windowScales: { ...state.windowScales },
-    symbols: SYMBOLS,
-    autoClearMs: AUTO_CLEAR_MS
+    windowScales: { ...state.windowScales }
   };
-}
-
-function filterSequence(sequence) {
-  if (!Array.isArray(sequence)) {
-    return [];
-  }
-
-  const result = [];
-  for (const symbol of sequence) {
-    if (SYMBOLS.includes(symbol) && !result.includes(symbol)) {
-      result.push(symbol);
-    }
-  }
-
-  return result.slice(0, SYMBOLS.length);
 }
 
 function normalizeRole(value) {
