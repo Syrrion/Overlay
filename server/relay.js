@@ -9,6 +9,7 @@ const STATE_POLL_MS = 100;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const STATE_WRITE_DEBOUNCE_MS = 50;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
+const UNKNOWN_SYMBOL = "unknown";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
 const MIME_TYPES = {
@@ -109,7 +110,7 @@ function handleApiRequest(request, response, requestUrl) {
 
   if (roomResource === "events") {
     if (request.method === "GET") {
-      openRoomEventStream(request, response, roomName);
+      openRoomEventStream(request, response, roomName, requestUrl);
       return;
     }
 
@@ -192,7 +193,7 @@ function readJsonBody(request, response, callback) {
   });
 }
 
-function openRoomEventStream(request, response, roomName) {
+function openRoomEventStream(request, response, roomName, requestUrl) {
   const room = getRoom(roomName);
   const storedRoom = readStoredRoom(roomName);
   if (storedRoom) {
@@ -203,13 +204,14 @@ function openRoomEventStream(request, response, roomName) {
 
   response.writeHead(200, createEventStreamHeaders());
   response.flushHeaders?.();
+  response.uraClientId = normalizeClientId(requestUrl.searchParams.get("client")) || createAnonymousClientId();
   room.eventStreams.add(response);
   metrics.eventStreamConnections += 1;
   metrics.lastJoinAt = Date.now();
   metrics.lastJoinRoom = roomName;
   metrics.lastJoinRole = "event-stream";
 
-  sendEventStreamState(response, createStateMessage(room));
+  broadcastRoomState(room);
 
   const keepAliveTimer = setInterval(() => {
     if (!response.writableEnded) {
@@ -220,7 +222,10 @@ function openRoomEventStream(request, response, roomName) {
 
   request.on("close", () => {
     clearInterval(keepAliveTimer);
-    room.eventStreams.delete(response);
+    const wasConnected = room.eventStreams.delete(response);
+    if (wasConnected && room.eventStreams.size > 0) {
+      broadcastRoomState(room);
+    }
     maybeDeleteRoom(roomName, room);
   });
 }
@@ -236,9 +241,20 @@ function createEventStreamHeaders() {
 }
 
 function getRoomStateMessage(roomName) {
+  const activeRoom = rooms.get(roomName);
+  if (activeRoom) {
+    const storedRoom = readStoredRoom(roomName);
+    if (storedRoom && isNewerRoomState(activeRoom, storedRoom)) {
+      applyRoomState(activeRoom, storedRoom);
+    }
+
+    return createStateMessage(activeRoom);
+  }
+
   const storedRoom = readStoredRoom(roomName);
   const room = {
     name: roomName,
+    eventStreams: new Set(),
     sequence: [],
     expiresAt: null,
     revision: 0,
@@ -326,7 +342,7 @@ function applyRoomState(room, storedRoom) {
   const expiresAt = normalizeExpiresAt(storedRoom.expiresAt);
   const expired = Boolean(storedRoom.expiresAt) && !expiresAt;
 
-  room.sequence = expired ? [] : filterSequence(storedRoom.sequence);
+  room.sequence = expired ? [] : completeDeducedSequence(filterSequence(storedRoom.sequence));
   room.expiresAt = expiresAt;
   room.revision = normalizeRevision(storedRoom.revision) || normalizeRevision(storedRoom.updatedAt);
   room.sourceId = normalizeSourceId(storedRoom.sourceId);
@@ -344,8 +360,8 @@ function applyIncomingRoomState(room, message) {
     return false;
   }
 
-  room.sequence = filterSequence(message.sequence);
-  room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
+  room.sequence = completeDeducedSequence(filterSequence(message.sequence));
+  room.expiresAt = isCompleteSequence(room.sequence) ? Date.now() + AUTO_CLEAR_MS : null;
   room.revision = nextServerRevision(room.revision);
   recordRoomSourceRevision(room, incomingSourceId, incomingSourceRevision);
   room.updatedAt = Date.now();
@@ -379,20 +395,29 @@ function applyRoomAction(room, message) {
 }
 
 function appendRoomSymbol(room, symbol) {
-  if (!SYMBOLS.includes(symbol) || room.sequence.includes(symbol) || room.sequence.length >= SYMBOLS.length) {
+  const token = normalizeSequenceToken(symbol);
+  const nextSequence = filterSequence(room.sequence);
+
+  if (!token || nextSequence.length >= SYMBOLS.length) {
     return;
   }
 
-  const nextSequence = [...room.sequence, symbol];
-  if (nextSequence.length === SYMBOLS.length - 1) {
-    const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
-    if (lastSymbol) {
-      nextSequence.push(lastSymbol);
+  if (token === UNKNOWN_SYMBOL) {
+    if (nextSequence.includes(UNKNOWN_SYMBOL)) {
+      return;
     }
+
+    nextSequence.push(UNKNOWN_SYMBOL);
+  } else {
+    if (nextSequence.includes(token)) {
+      return;
+    }
+
+    nextSequence.push(token);
   }
 
-  room.sequence = nextSequence;
-  room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
+  room.sequence = completeDeducedSequence(nextSequence);
+  room.expiresAt = isCompleteSequence(room.sequence) ? Date.now() + AUTO_CLEAR_MS : null;
 }
 
 function persistRoomState(room) {
@@ -499,7 +524,7 @@ function normalizeExpiresAt(value) {
 function countLocalClients() {
   let count = 0;
   for (const room of rooms.values()) {
-    count += room.eventStreams.size;
+    count += getConnectedClientCount(room);
   }
 
   return count;
@@ -508,7 +533,8 @@ function countLocalClients() {
 function getClientsByRoom() {
   return [...rooms.values()].map((room) => ({
     room: room.name,
-    clients: room.eventStreams.size,
+    clients: getConnectedClientCount(room),
+    connectedClients: getConnectedClientCount(room),
     eventStreamClients: room.eventStreams.size,
     sequenceLength: room.sequence.length,
     revision: normalizeRevision(room.revision)
@@ -560,13 +586,14 @@ function createStateMessage(room) {
   return {
     type: "state",
     room: room.name,
-    sequence: room.sequence,
+    sequence: filterSequence(room.sequence),
     expiresAt: room.expiresAt,
     revision: normalizeRevision(room.revision),
     sourceId: normalizeSourceId(room.sourceId),
     sourceRevision: normalizeRevision(room.sourceRevision),
     updatedAt: Number(room.updatedAt || Date.now()),
-    autoClearMs: AUTO_CLEAR_MS
+    autoClearMs: AUTO_CLEAR_MS,
+    connectedClients: getConnectedClientCount(room)
   };
 }
 
@@ -583,12 +610,79 @@ function filterSequence(sequence) {
 
   const result = [];
   for (const symbol of sequence) {
-    if (SYMBOLS.includes(symbol) && !result.includes(symbol)) {
-      result.push(symbol);
+    const token = normalizeSequenceToken(symbol);
+    if (!token) {
+      continue;
+    }
+
+    if (token === UNKNOWN_SYMBOL) {
+      if (!result.includes(UNKNOWN_SYMBOL)) {
+        result.push(token);
+      }
+      continue;
+    }
+
+    if (!result.includes(token)) {
+      result.push(token);
     }
   }
 
   return result.slice(0, SYMBOLS.length);
+}
+
+function completeDeducedSequence(sequence) {
+  const nextSequence = filterSequence(sequence);
+  const unknownIndex = nextSequence.indexOf(UNKNOWN_SYMBOL);
+
+  if (unknownIndex === -1) {
+    if (nextSequence.length === SYMBOLS.length - 1) {
+      const missingSymbols = getMissingSymbols(nextSequence);
+      if (missingSymbols.length === 1) {
+        nextSequence.push(missingSymbols[0]);
+      }
+    }
+
+    return nextSequence;
+  }
+
+  if (nextSequence.length === SYMBOLS.length) {
+    const missingSymbols = getMissingSymbols(nextSequence);
+    if (missingSymbols.length === 1) {
+      nextSequence[unknownIndex] = missingSymbols[0];
+    }
+  }
+
+  return nextSequence;
+}
+
+function getMissingSymbols(sequence) {
+  return SYMBOLS.filter((symbol) => !sequence.includes(symbol));
+}
+
+function isCompleteSequence(sequence) {
+  return sequence.length === SYMBOLS.length && sequence.every((symbol) => SYMBOLS.includes(symbol));
+}
+
+function normalizeSequenceToken(value) {
+  const token = String(value || "").trim().toLowerCase();
+  if (token === UNKNOWN_SYMBOL || token === "?") {
+    return UNKNOWN_SYMBOL;
+  }
+
+  return SYMBOLS.includes(token) ? token : "";
+}
+
+function getConnectedClientCount(room) {
+  if (!room?.eventStreams) {
+    return 0;
+  }
+
+  const clientIds = new Set();
+  for (const eventStream of room.eventStreams) {
+    clientIds.add(normalizeClientId(eventStream.uraClientId) || `stream-${clientIds.size}`);
+  }
+
+  return clientIds.size;
 }
 
 function normalizeRevision(value) {
@@ -599,6 +693,15 @@ function normalizeRevision(value) {
 function normalizeSourceId(value) {
   const sourceId = String(value || "").trim();
   return /^[a-z0-9_-]{8,80}$/i.test(sourceId) ? sourceId : "";
+}
+
+function normalizeClientId(value) {
+  const clientId = String(value || "").trim();
+  return /^[a-z0-9_-]{8,80}$/i.test(clientId) ? clientId : "";
+}
+
+function createAnonymousClientId() {
+  return `anon-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 function normalizeSourceRevisions(value) {

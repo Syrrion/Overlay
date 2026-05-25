@@ -1,4 +1,5 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen } = require("electron");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -6,7 +7,7 @@ const DEFAULT_SERVER_URL = "https://ura.syrion.site";
 const DEFAULT_ROOM = "ura-helper";
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
-  palette: { width: 486, height: 96 }
+  palette: { width: 556, height: 96 }
 };
 const DEFAULT_WINDOW_SCALES = {
   sequence: 1,
@@ -26,6 +27,7 @@ let paletteWindow = null;
 let saveSettingsTimer = null;
 let settings = {};
 let suppressManagedWindowCloseQuit = false;
+const desktopClientId = createClientId();
 
 const state = {
   role: "idle",
@@ -551,6 +553,7 @@ function buildWebAppUrl(view, mode, options = {}) {
   url.searchParams.set("mode", mode);
   url.searchParams.set("room", state.room);
   url.searchParams.set("relay", state.serverUrl);
+  url.searchParams.set("client", desktopClientId);
 
   if (options.reset) {
     url.searchParams.set("reset", "1");
@@ -629,6 +632,10 @@ function normalizeServerUrl(value) {
   url.hash = "";
 
   return url.toString().replace(/\/$/, "");
+}
+
+function createClientId() {
+  return crypto.randomUUID();
 }
 
 function normalizeWindowKey(value) {

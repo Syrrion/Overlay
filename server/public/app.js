@@ -1,10 +1,13 @@
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
+const UNKNOWN_SYMBOL = "unknown";
+const SYMBOL_ACTIONS = [...SYMBOLS, UNKNOWN_SYMBOL];
 const SYMBOL_NAMES = {
   cross: "Croix",
   t: "T",
   circle: "Rond",
   diamond: "Losange",
-  triangle: "Triangle"
+  triangle: "Triangle",
+  unknown: "Caractere inconnu"
 };
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
@@ -17,7 +20,8 @@ const mode = view === "palette" ? "leader" : normalizeMode(params.get("mode") ||
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
 const relayBaseUrl = getRelayBaseUrl(params.get("relay"));
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
-const sourceId = createSourceId();
+const clientId = normalizeClientId(params.get("client")) || createSourceId();
+const sourceId = clientId;
 
 if (view !== "page") {
   document.body.innerHTML = createCompactMarkup(view);
@@ -27,6 +31,7 @@ document.body.classList.add(view === "overlay" ? "overlay-body" : view === "pale
 
 const elements = {
   clearSequence: document.getElementById("clear-sequence"),
+  connectedCount: document.getElementById("connected-count"),
   expiryFill: document.getElementById("expiry-fill"),
   expiryTrack: document.getElementById("expiry-track"),
   leaderControls: document.getElementById("leader-controls"),
@@ -43,6 +48,7 @@ const elements = {
 const state = {
   autoClearMs: DEFAULT_AUTO_CLEAR_MS,
   connected: false,
+  connectedClients: 0,
   expiresAt: null,
   pendingSourceRevision: 0,
   revision: 0,
@@ -64,6 +70,7 @@ document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 configureModeUi();
 renderSequence();
 renderLeaderControls();
+renderConnectedCount();
 syncExpiryBar();
 setStatus("Connexion au relais...", "pending");
 connectRelay();
@@ -82,6 +89,7 @@ function createCompactMarkup(targetView) {
           <button class="clear-button icon-clear-button" id="clear-sequence" type="button" title="Effacer" aria-label="Effacer la sequence">
             ${resetSvg()}
           </button>
+          <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
         </nav>
       </main>
     `;
@@ -93,6 +101,7 @@ function createCompactMarkup(targetView) {
         <div class="sequence-row">
           <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
           <ol class="symbol-sequence overlay" id="sequence" aria-label="Sequence de symboles"></ol>
+          <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
         </div>
         <div class="expiry-track is-hidden" id="expiry-track" aria-hidden="true">
           <span class="expiry-fill" id="expiry-fill"></span>
@@ -152,9 +161,11 @@ function applyStateMessage(message) {
   state.sequence = filterSequence(message.sequence);
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
   state.autoClearMs = Number.isFinite(message.autoClearMs) ? message.autoClearMs : DEFAULT_AUTO_CLEAR_MS;
+  state.connectedClients = normalizeClientCount(message.connectedClients ?? message.clients);
 
   renderSequence();
   renderLeaderControls();
+  renderConnectedCount();
   syncExpiryBar();
 }
 
@@ -168,7 +179,7 @@ function renderSequence() {
     const selected = state.sequence[index];
 
     return `
-      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"}">
+      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"} ${selected === UNKNOWN_SYMBOL ? "is-unknown" : ""}">
         ${selected ? symbolSvg(selected) : ""}
       </li>
     `;
@@ -186,11 +197,11 @@ function renderLeaderControls() {
     return;
   }
 
-  elements.symbolActions.innerHTML = SYMBOLS.map((symbol) => {
+  elements.symbolActions.innerHTML = SYMBOL_ACTIONS.map((symbol) => {
     const selected = state.sequence.includes(symbol);
 
     return `
-      <button class="symbol-button ${selected ? "is-selected" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}">
+      <button class="symbol-button ${selected ? "is-selected" : ""} ${symbol === UNKNOWN_SYMBOL ? "is-unknown" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}">
         ${symbolSvg(symbol)}
       </button>
     `;
@@ -213,27 +224,34 @@ function handleLeaderSymbol(symbol) {
     return;
   }
 
-  if (!SYMBOLS.includes(symbol)) {
+  const token = normalizeSequenceToken(symbol);
+  if (!token) {
     return;
   }
 
-  if (!state.sequence.includes(symbol) && state.sequence.length < SYMBOLS.length) {
-    const nextSequence = [...state.sequence, symbol];
-    if (nextSequence.length === SYMBOLS.length - 1) {
-      const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
-      if (lastSymbol) {
-        nextSequence.push(lastSymbol);
-      }
-    }
-
-    state.sequence = nextSequence;
-    state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
-    renderSequence();
-    renderLeaderControls();
-    syncExpiryBar();
+  const nextSequence = appendSequenceToken(state.sequence, token);
+  if (!nextSequence) {
+    return;
   }
 
-  publishLeaderAction("append", { symbol });
+  state.sequence = nextSequence;
+  state.expiresAt = isCompleteSequence(state.sequence) ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
+  renderSequence();
+  renderLeaderControls();
+  syncExpiryBar();
+  publishLeaderAction("append", { symbol: token });
+}
+
+function renderConnectedCount() {
+  if (!elements.connectedCount) {
+    return;
+  }
+
+  const count = normalizeClientCount(state.connectedClients);
+  const label = `${count} connecte${count > 1 ? "s" : ""}`;
+  elements.connectedCount.textContent = view === "page" ? label : String(count);
+  elements.connectedCount.title = label;
+  elements.connectedCount.setAttribute("aria-label", label);
 }
 
 function clearLeaderSequence() {
@@ -530,12 +548,94 @@ function filterSequence(sequence) {
 
   const result = [];
   for (const symbol of sequence) {
-    if (SYMBOLS.includes(symbol) && !result.includes(symbol)) {
-      result.push(symbol);
+    const token = normalizeSequenceToken(symbol);
+    if (!token) {
+      continue;
+    }
+
+    if (token === UNKNOWN_SYMBOL) {
+      if (!result.includes(UNKNOWN_SYMBOL)) {
+        result.push(token);
+      }
+      continue;
+    }
+
+    if (!result.includes(token)) {
+      result.push(token);
     }
   }
 
   return result.slice(0, SYMBOLS.length);
+}
+
+function appendSequenceToken(sequence, token) {
+  const nextSequence = filterSequence(sequence);
+  if (!token || nextSequence.length >= SYMBOLS.length) {
+    return null;
+  }
+
+  if (token === UNKNOWN_SYMBOL) {
+    if (nextSequence.includes(UNKNOWN_SYMBOL)) {
+      return null;
+    }
+
+    nextSequence.push(UNKNOWN_SYMBOL);
+  } else {
+    if (nextSequence.includes(token)) {
+      return null;
+    }
+
+    nextSequence.push(token);
+  }
+
+  return completeDeducedSequence(nextSequence);
+}
+
+function completeDeducedSequence(sequence) {
+  const nextSequence = filterSequence(sequence);
+  const unknownIndex = nextSequence.indexOf(UNKNOWN_SYMBOL);
+
+  if (unknownIndex === -1) {
+    if (nextSequence.length === SYMBOLS.length - 1) {
+      const missingSymbols = getMissingSymbols(nextSequence);
+      if (missingSymbols.length === 1) {
+        nextSequence.push(missingSymbols[0]);
+      }
+    }
+
+    return nextSequence;
+  }
+
+  if (nextSequence.length === SYMBOLS.length) {
+    const missingSymbols = getMissingSymbols(nextSequence);
+    if (missingSymbols.length === 1) {
+      nextSequence[unknownIndex] = missingSymbols[0];
+    }
+  }
+
+  return nextSequence;
+}
+
+function getMissingSymbols(sequence) {
+  return SYMBOLS.filter((symbol) => !sequence.includes(symbol));
+}
+
+function isCompleteSequence(sequence) {
+  return sequence.length === SYMBOLS.length && sequence.every((symbol) => SYMBOLS.includes(symbol));
+}
+
+function normalizeSequenceToken(value) {
+  const token = String(value || "").trim().toLowerCase();
+  if (token === UNKNOWN_SYMBOL || token === "?") {
+    return UNKNOWN_SYMBOL;
+  }
+
+  return SYMBOLS.includes(token) ? token : "";
+}
+
+function normalizeClientCount(value) {
+  const count = Number(value);
+  return Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
 }
 
 function normalizeRevision(value) {
@@ -589,6 +689,11 @@ function createSourceId() {
 
   const randomPart = Math.random().toString(36).slice(2);
   return `src-${Date.now().toString(36)}-${randomPart}`;
+}
+
+function normalizeClientId(value) {
+  const clientId = String(value || "").trim();
+  return /^[a-z0-9_-]{8,80}$/i.test(clientId) ? clientId : "";
 }
 
 function normalizeRoom(value) {
@@ -659,6 +764,10 @@ function getDefaultRelayBaseUrl() {
 }
 
 function symbolSvg(symbol) {
+  if (symbol === UNKNOWN_SYMBOL) {
+    return `<span class="unknown-mark" aria-hidden="true">?</span>`;
+  }
+
   if (symbol === "cross") {
     return `
       <svg viewBox="0 0 48 48" aria-hidden="true">
@@ -719,6 +828,7 @@ function getRoomEventsUrl() {
   const url = new URL(getRelayHttpBaseUrl(relayBaseUrl));
   url.pathname = `/api/rooms/${encodeURIComponent(room)}/events`;
   url.search = "";
+  url.searchParams.set("client", clientId);
   url.hash = "";
   return url.toString();
 }
