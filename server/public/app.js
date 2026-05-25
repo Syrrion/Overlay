@@ -331,12 +331,9 @@ function publishLeaderAction(action, extra = {}) {
   pendingActions.push(message);
   updatePendingSourceRevision();
 
-  if (sendDesktopLeaderAction(message)) {
-    setStatus("Connecté", "connected");
-    return;
-  }
-
-  if (sendSocketMessage(message)) {
+  const sentDesktop = sendDesktopLeaderAction(message);
+  const sentSocket = sendSocketMessage(message);
+  if (sentDesktop || sentSocket) {
     setStatus("Connecté", "connected");
     return;
   }
@@ -484,6 +481,7 @@ function updatePendingSourceRevision() {
 
 function flushPendingActions() {
   for (const action of pendingActions) {
+    sendDesktopLeaderAction(action);
     sendSocketMessage(action);
   }
 }

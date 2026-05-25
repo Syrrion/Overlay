@@ -565,7 +565,7 @@ function installDesktopPaletteForwarder(window, view) {
 
   window.webContents.executeJavaScript(`
     (() => {
-      if (window.__uraHandlesDesktopBridge || window.__uraDesktopForwarderInstalled || !window.desktopOverlay) {
+      if (window.__uraDesktopForwarderInstalled || !window.desktopOverlay) {
         return;
       }
 
