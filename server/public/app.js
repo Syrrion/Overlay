@@ -86,7 +86,6 @@ function createCompactMarkup(targetView) {
         <nav class="leader-palette" id="leader-controls" aria-label="Symboles leader">
           <span class="window-handle">
             <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
-            <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
           </span>
           <div class="symbol-actions" id="symbol-actions"></div>
           <button class="clear-button icon-clear-button" id="clear-sequence" type="button" title="Effacer" aria-label="Effacer la sequence">

@@ -283,9 +283,15 @@ h1 {
 }
 
 .symbol-button.is-selected {
-  border-color: rgba(255, 176, 0, 0.62);
-  color: #fff8dd;
-  background: linear-gradient(145deg, rgba(255, 176, 0, 0.22), rgba(89, 201, 255, 0.12));
+  border-color: rgba(246, 241, 231, 0.14);
+  color: rgba(246, 241, 231, 0.28);
+  background: rgba(255, 255, 255, 0.025);
+  opacity: 0.46;
+}
+
+.symbol-button.is-selected:hover:not(:disabled) {
+  border-color: rgba(246, 241, 231, 0.18);
+  background: rgba(255, 255, 255, 0.035);
 }
 
 .symbol-button.is-unknown {
@@ -293,8 +299,9 @@ h1 {
 }
 
 .symbol-button.is-unknown.is-selected {
-  border-color: rgba(215, 255, 95, 0.56);
-  background: rgba(215, 255, 95, 0.11);
+  border-color: rgba(246, 241, 231, 0.14);
+  color: rgba(246, 241, 231, 0.28);
+  background: rgba(255, 255, 255, 0.025);
 }
 
 .unknown-mark {
@@ -531,16 +538,23 @@ body.palette-body {
 
 .palette-body .symbol-button.is-selected,
 .palette-body .symbol-button:disabled {
-  color: rgba(246, 241, 231, 0.35);
-  background: rgba(255, 255, 255, 0.03);
+  color: rgba(246, 241, 231, 0.24);
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.42;
 }
 
 .overlay-body .sequence-slot.is-unknown,
-.palette-body .symbol-button.is-unknown,
-.palette-body .symbol-button.is-unknown.is-selected {
+.palette-body .symbol-button.is-unknown {
   border-color: rgba(215, 255, 95, 0.46);
   color: var(--question);
   background: rgba(215, 255, 95, 0.09);
+}
+
+.palette-body .symbol-button.is-unknown.is-selected {
+  border-color: rgba(246, 241, 231, 0.12);
+  color: rgba(246, 241, 231, 0.24);
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.42;
 }
 
 .overlay-body .expiry-track {
