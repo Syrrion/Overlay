@@ -299,7 +299,7 @@ function renderLeaderControls() {
   }
 
   if (elements.clearSequence) {
-    elements.clearSequence.disabled = state.sequence.length === 0;
+    elements.clearSequence.disabled = false;
   }
 }
 
@@ -322,20 +322,20 @@ function handleLeaderSymbol(symbol) {
 
   state.sequence = nextSequence;
   state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
-  publishLeaderState();
+  publishLeaderAction("append", { symbol });
   renderSequence();
   renderLeaderControls();
   syncExpiryBar();
 }
 
 function clearLeaderSequence() {
-  if (mode !== "leader" || state.sequence.length === 0) {
+  if (mode !== "leader") {
     return;
   }
 
   state.sequence = [];
   state.expiresAt = null;
-  publishLeaderState();
+  publishLeaderAction("clear");
   renderSequence();
   renderLeaderControls();
   syncExpiryBar();
@@ -349,23 +349,23 @@ function resetLeaderStateOnce() {
   didResetOnJoin = true;
   state.sequence = [];
   state.expiresAt = null;
-  publishLeaderState();
+  publishLeaderAction("clear");
   renderSequence();
   renderLeaderControls();
   syncExpiryBar();
 }
 
-function publishLeaderState() {
+function publishLeaderAction(action, extra = {}) {
   const sourceRevision = nextLocalSourceRevision();
   state.pendingSourceRevision = sourceRevision;
 
   const message = {
-    type: "state",
+    type: "action",
+    action,
     room,
-    sequence: state.sequence,
-    expiresAt: state.expiresAt,
     sourceId,
     sourceRevision,
+    ...extra,
     autoClearMs: DEFAULT_AUTO_CLEAR_MS
   };
 
@@ -376,10 +376,10 @@ function publishLeaderState() {
   }
 
   setStatus("Publication HTTP...", "pending");
-  publishLeaderStateHttp(message);
+  publishLeaderActionHttp(message);
 }
 
-async function publishLeaderStateHttp(message) {
+async function publishLeaderActionHttp(message) {
   try {
     const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}/state`, {
       method: "POST",
@@ -513,7 +513,7 @@ function isOlderThanPendingPublish(message) {
     return false;
   }
 
-  return message.sourceId !== sourceId || normalizeRevision(message.sourceRevision) < state.pendingSourceRevision;
+  return message.sourceId === sourceId && normalizeRevision(message.sourceRevision) < state.pendingSourceRevision;
 }
 
 function acknowledgePublish(message) {

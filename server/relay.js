@@ -21,6 +21,7 @@ const MIME_TYPES = {
 
 const rooms = new Map();
 const metrics = {
+  actionUpdates: 0,
   httpStateUpdates: 0,
   ignoredStaleStateUpdates: 0,
   stateWriteErrors: 0,
@@ -116,6 +117,11 @@ function handleMessage(socket, data) {
 
   if (message.type === "state") {
     updateRoomState(socket, message);
+    return;
+  }
+
+  if (message.type === "action") {
+    updateRoomAction(socket, message);
   }
 }
 
@@ -147,7 +153,11 @@ function handleApiRequest(request, response, requestUrl) {
       const room = getRoom(roomName);
       metrics.httpStateUpdates += 1;
 
-      if (applyIncomingRoomState(room, message)) {
+      const changed = message.type === "action"
+        ? applyRoomAction(room, message)
+        : applyIncomingRoomState(room, message);
+
+      if (changed) {
         scheduleRoomClear(roomName, room);
         broadcastRoomState(room);
         persistRoomState(room);
@@ -208,6 +218,7 @@ function getRoomStateMessage(roomName) {
     revision: 0,
     sourceId: "",
     sourceRevision: 0,
+    sourceRevisions: {},
     updatedAt: 0
   };
 
@@ -261,6 +272,25 @@ function updateRoomState(socket, message) {
   persistRoomState(room);
 }
 
+function updateRoomAction(socket, message) {
+  if (!socket.room || socket.role !== "leader") {
+    return;
+  }
+
+  const room = getRoom(socket.room);
+  metrics.actionUpdates += 1;
+
+  if (!applyRoomAction(room, message)) {
+    metrics.ignoredStaleStateUpdates += 1;
+    sendRoomState(socket, room);
+    return;
+  }
+
+  scheduleRoomClear(socket.room, room);
+  broadcastRoomState(room);
+  persistRoomState(room);
+}
+
 function leaveRoom(socket) {
   if (!socket.room) {
     return;
@@ -288,6 +318,7 @@ function getRoom(roomName) {
       revision: 0,
       sourceId: "",
       sourceRevision: 0,
+      sourceRevisions: {},
       clearTimer: null,
       updatedAt: 0
     });
@@ -353,6 +384,8 @@ function applyRoomState(room, storedRoom) {
   room.revision = normalizeRevision(storedRoom.revision) || normalizeRevision(storedRoom.updatedAt);
   room.sourceId = normalizeSourceId(storedRoom.sourceId);
   room.sourceRevision = normalizeRevision(storedRoom.sourceRevision);
+  room.sourceRevisions = normalizeSourceRevisions(storedRoom.sourceRevisions);
+  recordRoomSourceRevision(room, room.sourceId, room.sourceRevision);
   room.updatedAt = Number(storedRoom.updatedAt || Date.now());
 }
 
@@ -360,22 +393,59 @@ function applyIncomingRoomState(room, message) {
   const incomingSourceId = normalizeSourceId(message.sourceId);
   const incomingSourceRevision = normalizeRevision(message.sourceRevision);
 
-  if (
-    incomingSourceId
-    && incomingSourceId === room.sourceId
-    && incomingSourceRevision
-    && incomingSourceRevision <= normalizeRevision(room.sourceRevision)
-  ) {
+  if (isStaleSourceRevision(room, incomingSourceId, incomingSourceRevision)) {
     return false;
   }
 
   room.sequence = filterSequence(message.sequence);
   room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
   room.revision = nextServerRevision(room.revision);
-  room.sourceId = incomingSourceId || room.sourceId;
-  room.sourceRevision = incomingSourceRevision || 0;
+  recordRoomSourceRevision(room, incomingSourceId, incomingSourceRevision);
   room.updatedAt = Date.now();
   return true;
+}
+
+function applyRoomAction(room, message) {
+  const incomingSourceId = normalizeSourceId(message.sourceId);
+  const incomingSourceRevision = normalizeRevision(message.sourceRevision);
+
+  if (isStaleSourceRevision(room, incomingSourceId, incomingSourceRevision)) {
+    return false;
+  }
+
+  const action = message.action === "clear" ? "clear" : message.action === "append" ? "append" : "";
+  if (!action) {
+    return false;
+  }
+
+  if (action === "clear") {
+    room.sequence = [];
+    room.expiresAt = null;
+  } else {
+    appendRoomSymbol(room, message.symbol);
+  }
+
+  room.revision = nextServerRevision(room.revision);
+  recordRoomSourceRevision(room, incomingSourceId, incomingSourceRevision);
+  room.updatedAt = Date.now();
+  return true;
+}
+
+function appendRoomSymbol(room, symbol) {
+  if (!SYMBOLS.includes(symbol) || room.sequence.includes(symbol) || room.sequence.length >= SYMBOLS.length) {
+    return;
+  }
+
+  const nextSequence = [...room.sequence, symbol];
+  if (nextSequence.length === SYMBOLS.length - 1) {
+    const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
+    if (lastSymbol) {
+      nextSequence.push(lastSymbol);
+    }
+  }
+
+  room.sequence = nextSequence;
+  room.expiresAt = room.sequence.length === SYMBOLS.length ? Date.now() + AUTO_CLEAR_MS : null;
 }
 
 function persistRoomState(room) {
@@ -386,6 +456,7 @@ function persistRoomState(room) {
     revision: normalizeRevision(room.revision),
     sourceId: normalizeSourceId(room.sourceId),
     sourceRevision: normalizeRevision(room.sourceRevision),
+    sourceRevisions: normalizeSourceRevisions(room.sourceRevisions),
     updatedAt: Number(room.updatedAt || Date.now())
   };
   store.updatedAt = Date.now();
@@ -526,6 +597,42 @@ function normalizeRevision(value) {
 function normalizeSourceId(value) {
   const sourceId = String(value || "").trim();
   return /^[a-z0-9_-]{8,80}$/i.test(sourceId) ? sourceId : "";
+}
+
+function normalizeSourceRevisions(value) {
+  const result = {};
+  if (!value || typeof value !== "object") {
+    return result;
+  }
+
+  for (const [sourceId, sourceRevision] of Object.entries(value)) {
+    const normalizedSourceId = normalizeSourceId(sourceId);
+    const normalizedSourceRevision = normalizeRevision(sourceRevision);
+    if (normalizedSourceId && normalizedSourceRevision) {
+      result[normalizedSourceId] = normalizedSourceRevision;
+    }
+  }
+
+  return result;
+}
+
+function isStaleSourceRevision(room, sourceId, sourceRevision) {
+  if (!sourceId || !sourceRevision) {
+    return false;
+  }
+
+  return sourceRevision <= normalizeRevision(room.sourceRevisions?.[sourceId]);
+}
+
+function recordRoomSourceRevision(room, sourceId, sourceRevision) {
+  if (!sourceId || !sourceRevision) {
+    return;
+  }
+
+  room.sourceRevisions = room.sourceRevisions || {};
+  room.sourceRevisions[sourceId] = Math.max(normalizeRevision(room.sourceRevisions[sourceId]), sourceRevision);
+  room.sourceId = sourceId;
+  room.sourceRevision = room.sourceRevisions[sourceId];
 }
 
 function nextServerRevision(currentRevision = 0) {
