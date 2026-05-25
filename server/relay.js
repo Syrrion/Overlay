@@ -5,7 +5,7 @@ const { WebSocket, WebSocketServer } = require("ws");
 
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const AUTO_CLEAR_MS = 20_000;
-const STATE_POLL_MS = 250;
+const STATE_POLL_MS = 100;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const PUBLIC_DIR = path.join(__dirname, "public");
@@ -148,9 +148,9 @@ function handleApiRequest(request, response, requestUrl) {
       metrics.httpStateUpdates += 1;
 
       if (applyIncomingRoomState(room, message)) {
-        persistRoomState(room);
         scheduleRoomClear(roomName, room);
         broadcastRoomState(room);
+        persistRoomState(room);
       } else {
         metrics.ignoredStaleStateUpdates += 1;
       }
@@ -256,9 +256,9 @@ function updateRoomState(socket, message) {
     return;
   }
 
-  persistRoomState(room);
   scheduleRoomClear(socket.room, room);
   broadcastRoomState(room);
+  persistRoomState(room);
 }
 
 function leaveRoom(socket) {

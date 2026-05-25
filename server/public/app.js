@@ -8,7 +8,7 @@ const SYMBOL_NAMES = {
 };
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
-const HTTP_POLL_MS = 500;
+const HTTP_POLL_MS = 250;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
@@ -121,7 +121,10 @@ function configureModeUi() {
   }
 
   if (elements.clearSequence) {
-    elements.clearSequence.addEventListener("click", clearLeaderSequence);
+    elements.clearSequence.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      clearLeaderSequence();
+    });
   }
 }
 
@@ -230,13 +233,15 @@ function applyStateMessage(message) {
     return;
   }
 
-  if (state.publishing && isOlderThanPendingPublish(message)) {
+  if (isOlderThanPendingPublish(message)) {
     return;
   }
 
   if (revision) {
     state.revision = revision;
   }
+
+  acknowledgePublish(message);
 
   state.sequence = filterSequence(message.sequence);
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
@@ -277,7 +282,7 @@ function renderLeaderControls() {
 
   elements.symbolActions.innerHTML = SYMBOLS.map((symbol) => {
     const selected = state.sequence.includes(symbol);
-    const disabled = selected || state.sequence.length >= SYMBOLS.length || state.publishing;
+    const disabled = selected || state.sequence.length >= SYMBOLS.length;
 
     return `
       <button class="symbol-button ${selected ? "is-selected" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}" ${disabled ? "disabled" : ""}>
@@ -287,17 +292,19 @@ function renderLeaderControls() {
   }).join("");
 
   for (const button of elements.symbolActions.querySelectorAll("[data-symbol]")) {
-    button.addEventListener("mousedown", (event) => event.preventDefault());
-    button.addEventListener("click", () => handleLeaderSymbol(button.dataset.symbol));
+    button.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      handleLeaderSymbol(button.dataset.symbol);
+    });
   }
 
   if (elements.clearSequence) {
-    elements.clearSequence.disabled = state.sequence.length === 0 || state.publishing;
+    elements.clearSequence.disabled = state.sequence.length === 0;
   }
 }
 
 function handleLeaderSymbol(symbol) {
-  if (mode !== "leader" || state.publishing) {
+  if (mode !== "leader") {
     return;
   }
 
@@ -322,7 +329,7 @@ function handleLeaderSymbol(symbol) {
 }
 
 function clearLeaderSequence() {
-  if (mode !== "leader" || state.publishing || state.sequence.length === 0) {
+  if (mode !== "leader" || state.sequence.length === 0) {
     return;
   }
 
@@ -348,7 +355,7 @@ function resetLeaderStateOnce() {
   syncExpiryBar();
 }
 
-async function publishLeaderState() {
+function publishLeaderState() {
   const sourceRevision = nextLocalSourceRevision();
   state.pendingSourceRevision = sourceRevision;
 
@@ -363,9 +370,16 @@ async function publishLeaderState() {
   };
 
   state.publishing = true;
-  setStatus("Publication...", "pending");
-  sendSocketMessage(message);
+  if (sendSocketMessage(message)) {
+    setStatus("Connecté", "connected");
+    return;
+  }
 
+  setStatus("Publication HTTP...", "pending");
+  publishLeaderStateHttp(message);
+}
+
+async function publishLeaderStateHttp(message) {
   try {
     const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}/state`, {
       method: "POST",
@@ -383,16 +397,11 @@ async function publishLeaderState() {
     setStatus("Connecté", "connected");
     applyStateMessage(await response.json());
   } catch (error) {
-    if (state.connected) {
-      setStatus("Publication WebSocket envoyee. Confirmation HTTP en attente...", "pending");
-    } else {
-      setStatus(`Publication impossible: ${error.message}`, "error");
-    }
-  } finally {
     state.publishing = false;
-    if (state.pendingSourceRevision === sourceRevision) {
+    if (state.pendingSourceRevision === message.sourceRevision) {
       state.pendingSourceRevision = 0;
     }
+    setStatus(`Publication impossible: ${error.message}`, "error");
     renderLeaderControls();
   }
 }
@@ -467,10 +476,11 @@ function setStatus(message, variant) {
 
 function sendSocketMessage(message) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return;
+    return false;
   }
 
   socket.send(JSON.stringify(message));
+  return true;
 }
 
 function filterSequence(sequence) {
@@ -504,6 +514,17 @@ function isOlderThanPendingPublish(message) {
   }
 
   return message.sourceId !== sourceId || normalizeRevision(message.sourceRevision) < state.pendingSourceRevision;
+}
+
+function acknowledgePublish(message) {
+  if (!state.pendingSourceRevision || message.sourceId !== sourceId) {
+    return;
+  }
+
+  if (normalizeRevision(message.sourceRevision) >= state.pendingSourceRevision) {
+    state.pendingSourceRevision = 0;
+    state.publishing = false;
+  }
 }
 
 function createSourceId() {
