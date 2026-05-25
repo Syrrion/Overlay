@@ -787,6 +787,9 @@ function stopSession({ notify = true } = {}) {
 function getRelayHttpUrl(value) {
   const url = new URL(value);
   url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
   return url.toString().replace(/\/$/, "");
 }
 
@@ -840,6 +843,10 @@ function normalizeServerUrl(value) {
   }
 
   const url = new URL(withScheme);
+  if (url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+
   return url.toString().replace(/\/$/, "");
 }
 

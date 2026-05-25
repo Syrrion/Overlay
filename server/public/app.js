@@ -739,15 +739,20 @@ function getRelayUrl(overrideValue) {
     withScheme = `${window.location.protocol === "https:" ? "wss" : "ws"}://${withScheme}`;
   }
 
-  return new URL(withScheme).toString().replace(/\/$/, "");
+  const url = new URL(withScheme);
+  if (url.pathname === "/") {
+    url.pathname = "/ws";
+  }
+
+  return url.toString().replace(/\/$/, "");
 }
 
 function getDefaultRelayUrl() {
   if (!window.location.host) {
-    return "ws://127.0.0.1:8787";
+    return "ws://127.0.0.1:8787/ws";
   }
 
-  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
+  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
 }
 
 function symbolSvg(symbol) {

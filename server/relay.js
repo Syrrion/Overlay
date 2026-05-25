@@ -70,6 +70,17 @@ const server = http.createServer((request, response) => {
     return;
   }
 
+  if (requestUrl.pathname === "/ws") {
+    response.writeHead(426, {
+      "cache-control": "no-store",
+      "connection": "upgrade",
+      "content-type": "text/plain; charset=utf-8",
+      "upgrade": "websocket"
+    });
+    response.end("WebSocket endpoint. Connect with wss://<host>/ws\n");
+    return;
+  }
+
   if (requestUrl.pathname.startsWith("/api/rooms/")) {
     handleApiRequest(request, response, requestUrl);
     return;
@@ -87,7 +98,20 @@ const server = http.createServer((request, response) => {
   serveStaticAsset(requestUrl.pathname, response, request.method === "HEAD");
 });
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ noServer: true });
+
+server.on("upgrade", (request, socket, head) => {
+  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+  if (requestUrl.pathname !== "/" && requestUrl.pathname !== "/ws") {
+    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    socket.destroy();
+    return;
+  }
+
+  wss.handleUpgrade(request, socket, head, (webSocket) => {
+    wss.emit("connection", webSocket, request);
+  });
+});
 
 wss.on("connection", (socket) => {
   metrics.websocketConnections += 1;

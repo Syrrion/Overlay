@@ -34,7 +34,15 @@ Sur Linux, par exemple:
 PORT=8787 npm run relay
 ```
 
-Expose ensuite ce service en WebSocket, par exemple `wss://ura.syrion.site`. Si tu passes par Nginx ou Caddy, il faut garder l'upgrade WebSocket actif vers le port du relais.
+Expose ensuite ce service en WebSocket, par exemple `wss://ura.syrion.site/ws`. Si tu passes par Nginx, Caddy, Apache ou cPanel, il faut garder l'upgrade WebSocket actif vers le process Node.
+
+Sur cPanel/02switch, il ne faut generalement pas ouvrir un port public manuel. Le relais Node doit etre lance par l'application Node.js cPanel, puis le domaine ou sous-domaine doit proxifier les requetes HTTPS normales vers la page et les upgrades WebSocket vers `/ws`. Le test attendu est:
+
+```bash
+wscat -c wss://ura.syrion.site/ws
+```
+
+Si ce test retourne une page HTTP, un code `200`, `404`, `429` ou ne declenche aucun `websocketJoins` dans `/health`, l'upgrade WebSocket est encore bloque par la couche cPanel/proxy/WAF avant d'arriver au relais Node.
 
 ## Page web
 
@@ -48,7 +56,7 @@ Par defaut, la page web se connecte au meme host en WebSocket et rejoint le salo
 Parametres utiles:
 
 - `?room=autre-salon` pour consulter un autre salon
-- `?relay=wss://ura.syrion.site` si la page statique est hebergee ailleurs que le relais
+- `?relay=wss://ura.syrion.site/ws` si la page statique est hebergee ailleurs que le relais
 - `?mode=leader` pour piloter la sequence depuis le navigateur
 - `?view=overlay` pour charger la vue compacte d'affichage utilisee par Electron
 - `?view=palette&mode=leader` pour charger la palette compacte utilisee par Electron
