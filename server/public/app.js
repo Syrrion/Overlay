@@ -8,6 +8,8 @@ const SYMBOL_NAMES = {
 };
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
+const HTTP_FALLBACK_POLL_MS = 750;
+const HTTP_FALLBACK_PENDING_POLL_MS = 250;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
@@ -51,6 +53,9 @@ const state = {
 
 let didResetOnJoin = false;
 let expiryTimer = null;
+let fallbackPollInFlight = false;
+let fallbackPollTimer = null;
+let httpActionKeysInFlight = new Set();
 let localSourceRevision = 0;
 let pendingActions = [];
 let reconnectTimer = null;
@@ -132,11 +137,13 @@ function connectRelay() {
     socket = new WebSocket(relayUrl);
   } catch (error) {
     setStatus(`Relais invalide: ${error.message}`, "error");
+    startHttpFallback();
     return;
   }
 
   socket.addEventListener("open", () => {
     state.connected = true;
+    stopHttpFallback();
     setStatus("Connecté", "connected");
     sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
     resetLeaderStateOnce();
@@ -149,13 +156,15 @@ function connectRelay() {
 
   socket.addEventListener("close", () => {
     state.connected = false;
-    setStatus("Relais deconnecte. Reconnexion...", "pending");
+    setStatus("WebSocket deconnecte. Relais HTTP actif...", "pending");
+    startHttpFallback();
     reconnectTimer = window.setTimeout(connectRelay, 2000);
   });
 
   socket.addEventListener("error", () => {
     if (!state.connected) {
-      setStatus("Connexion impossible. Nouvelle tentative...", "error");
+      setStatus("WebSocket indisponible. Relais HTTP actif...", "pending");
+      startHttpFallback();
     }
   });
 }
@@ -333,12 +342,22 @@ function publishLeaderAction(action, extra = {}) {
 
   const sentDesktop = sendDesktopLeaderAction(message);
   const sentSocket = sendSocketMessage(message);
-  if (sentDesktop || sentSocket) {
+
+  if (!sentSocket) {
+    sendHttpLeaderAction(message);
+  }
+
+  if (sentSocket) {
     setStatus("Connecté", "connected");
     return;
   }
 
-  setStatus("Action en attente du WebSocket...", "pending");
+  if (sentDesktop) {
+    setStatus("Bridge Electron envoye, attente du relais...", "pending");
+    return;
+  }
+
+  setStatus("Action en attente du relais HTTP...", "pending");
 }
 
 function sendDesktopLeaderAction(message) {
@@ -426,6 +445,110 @@ function sendSocketMessage(message) {
   return true;
 }
 
+function startHttpFallback() {
+  if (fallbackPollTimer || fallbackPollInFlight) {
+    return;
+  }
+
+  scheduleHttpFallbackPoll(0);
+}
+
+function stopHttpFallback() {
+  clearTimeout(fallbackPollTimer);
+  fallbackPollTimer = null;
+  fallbackPollInFlight = false;
+}
+
+function scheduleHttpFallbackPoll(delay = getHttpFallbackPollDelay()) {
+  clearTimeout(fallbackPollTimer);
+  fallbackPollTimer = window.setTimeout(pollHttpState, delay);
+}
+
+async function pollHttpState() {
+  fallbackPollTimer = null;
+
+  if (state.connected && socket && socket.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  if (fallbackPollInFlight) {
+    scheduleHttpFallbackPoll();
+    return;
+  }
+
+  fallbackPollInFlight = true;
+
+  try {
+    const response = await fetch(getRoomStateUrl(false), { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    applyStateMessage(await response.json());
+    setStatus("Relais HTTP actif (WebSocket indisponible)", "pending");
+  } catch (error) {
+    setStatus(`Relais indisponible: ${error.message}`, "error");
+  } finally {
+    fallbackPollInFlight = false;
+    if (!state.connected || !socket || socket.readyState !== WebSocket.OPEN) {
+      scheduleHttpFallbackPoll();
+    }
+  }
+}
+
+function getHttpFallbackPollDelay() {
+  return pendingActions.length > 0 ? HTTP_FALLBACK_PENDING_POLL_MS : HTTP_FALLBACK_POLL_MS;
+}
+
+async function sendHttpLeaderAction(message) {
+  const actionKey = `${message.sourceId}:${message.sourceRevision}`;
+  if (httpActionKeysInFlight.has(actionKey)) {
+    return true;
+  }
+
+  httpActionKeysInFlight.add(actionKey);
+  startHttpFallback();
+
+  try {
+    const response = await fetch(getRoomStateUrl(true), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(message),
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    applyStateMessage(await response.json());
+    setStatus("Relais HTTP actif (WebSocket indisponible)", "pending");
+    return true;
+  } catch (error) {
+    setStatus(`Envoi impossible: ${error.message}`, "error");
+    return false;
+  } finally {
+    httpActionKeysInFlight.delete(actionKey);
+  }
+}
+
+function getRoomStateUrl(forWrite) {
+  const url = new URL(getRelayHttpBaseUrl(relayUrl));
+  url.pathname = `/api/rooms/${encodeURIComponent(room)}${forWrite ? "/state" : ""}`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function getRelayHttpBaseUrl(value) {
+  const url = new URL(value);
+  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
+}
+
 function filterSequence(sequence) {
   if (!Array.isArray(sequence)) {
     return [];
@@ -482,7 +605,9 @@ function updatePendingSourceRevision() {
 function flushPendingActions() {
   for (const action of pendingActions) {
     sendDesktopLeaderAction(action);
-    sendSocketMessage(action);
+    if (!sendSocketMessage(action)) {
+      sendHttpLeaderAction(action);
+    }
   }
 }
 

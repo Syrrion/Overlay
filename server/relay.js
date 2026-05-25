@@ -24,8 +24,15 @@ const MIME_TYPES = {
 const rooms = new Map();
 const metrics = {
   actionUpdates: 0,
+  httpActionUpdates: 0,
   httpStateUpdates: 0,
   ignoredStaleStateUpdates: 0,
+  lastActionAt: 0,
+  lastActionRoom: "",
+  lastActionTransport: "",
+  lastJoinAt: 0,
+  lastJoinRole: "",
+  lastJoinRoom: "",
   stateWriteErrors: 0,
   stateWrites: 0,
   websocketConnections: 0,
@@ -52,6 +59,7 @@ const server = http.createServer((request, response) => {
     response.end(JSON.stringify({
       ok: true,
       rooms: knownRooms.size,
+      clientsByRoom: getClientsByRoom(),
       localRooms: rooms.size,
       localClients: countLocalClients(),
       storedRooms: Object.keys(store.rooms).length,
@@ -163,6 +171,11 @@ function handleApiRequest(request, response, requestUrl) {
         ? applyRoomAction(room, message)
         : applyIncomingRoomState(room, message);
 
+      if (message.type === "action") {
+        recordActionMetric(roomName, "http");
+        metrics.httpActionUpdates += 1;
+      }
+
       if (changed) {
         scheduleRoomClear(roomName, room);
         broadcastRoomState(room);
@@ -246,6 +259,9 @@ function joinRoom(socket, message) {
   socket.room = roomName;
   socket.role = message.role === "leader" ? "leader" : "reader";
   metrics.websocketJoins += 1;
+  metrics.lastJoinAt = Date.now();
+  metrics.lastJoinRoom = roomName;
+  metrics.lastJoinRole = socket.role;
 
   const room = getRoom(roomName);
   const storedRoom = readStoredRoom(roomName);
@@ -285,6 +301,7 @@ function updateRoomAction(socket, message) {
 
   const room = getRoom(socket.room);
   metrics.actionUpdates += 1;
+  recordActionMetric(socket.room, "websocket");
 
   if (!applyRoomAction(room, message)) {
     metrics.ignoredStaleStateUpdates += 1;
@@ -562,6 +579,21 @@ function countLocalClients() {
   }
 
   return count;
+}
+
+function getClientsByRoom() {
+  return [...rooms.values()].map((room) => ({
+    room: room.name,
+    clients: room.clients.size,
+    sequenceLength: room.sequence.length,
+    revision: normalizeRevision(room.revision)
+  }));
+}
+
+function recordActionMetric(roomName, transport) {
+  metrics.lastActionAt = Date.now();
+  metrics.lastActionRoom = roomName;
+  metrics.lastActionTransport = transport;
 }
 
 function sendJson(response, statusCode, payload, headOnly = false) {
