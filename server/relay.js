@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
-const { WebSocket, WebSocketServer } = require("ws");
 
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const AUTO_CLEAR_MS = 20_000;
@@ -23,7 +22,6 @@ const MIME_TYPES = {
 
 const rooms = new Map();
 const metrics = {
-  actionUpdates: 0,
   httpActionUpdates: 0,
   httpStateUpdates: 0,
   ignoredStaleStateUpdates: 0,
@@ -37,9 +35,6 @@ const metrics = {
   eventStreamEvents: 0,
   stateWriteErrors: 0,
   stateWrites: 0,
-  websocketConnections: 0,
-  websocketJoins: 0,
-  websocketStateUpdates: 0,
   lastStateWriteError: ""
 };
 let serverRevision = Date.now() * 1000;
@@ -72,17 +67,6 @@ const server = http.createServer((request, response) => {
     return;
   }
 
-  if (requestUrl.pathname === "/ws") {
-    response.writeHead(426, {
-      "cache-control": "no-store",
-      "connection": "upgrade",
-      "content-type": "text/plain; charset=utf-8",
-      "upgrade": "websocket"
-    });
-    response.end("WebSocket endpoint. Connect with wss://<host>/ws\n");
-    return;
-  }
-
   if (requestUrl.pathname.startsWith("/api/rooms/")) {
     handleApiRequest(request, response, requestUrl);
     return;
@@ -100,70 +84,9 @@ const server = http.createServer((request, response) => {
   serveStaticAsset(requestUrl.pathname, response, request.method === "HEAD");
 });
 
-const wss = new WebSocketServer({ noServer: true });
-
-server.on("upgrade", (request, socket, head) => {
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
-  if (requestUrl.pathname !== "/" && requestUrl.pathname !== "/ws") {
-    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
-    socket.destroy();
-    return;
-  }
-
-  wss.handleUpgrade(request, socket, head, (webSocket) => {
-    wss.emit("connection", webSocket, request);
-  });
-});
-
-wss.on("connection", (socket) => {
-  metrics.websocketConnections += 1;
-  socket.room = null;
-  socket.role = "reader";
-
-  socket.on("message", (data) => {
-    handleMessage(socket, data);
-  });
-
-  socket.on("close", () => {
-    leaveRoom(socket);
-  });
-
-  socket.on("error", () => {
-    leaveRoom(socket);
-  });
-});
-
 server.listen(PORT, () => {
   console.log(`Ura Helper relay listening on :${PORT}`);
 });
-
-function handleMessage(socket, data) {
-  let message = null;
-  try {
-    message = JSON.parse(data.toString());
-  } catch (_error) {
-    send(socket, { type: "error", message: "Message JSON invalide." });
-    return;
-  }
-
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  if (message.type === "join") {
-    joinRoom(socket, message);
-    return;
-  }
-
-  if (message.type === "state") {
-    updateRoomState(socket, message);
-    return;
-  }
-
-  if (message.type === "action") {
-    updateRoomAction(socket, message);
-  }
-}
 
 function handleApiRequest(request, response, requestUrl) {
   const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/(state|events))?$/i.exec(requestUrl.pathname);
@@ -332,91 +255,10 @@ function getRoomStateMessage(roomName) {
   return createStateMessage(room);
 }
 
-function joinRoom(socket, message) {
-  const roomName = normalizeRoom(message.room);
-  if (!roomName) {
-    send(socket, { type: "error", message: "Salon invalide." });
-    return;
-  }
-
-  leaveRoom(socket);
-  socket.room = roomName;
-  socket.role = message.role === "leader" ? "leader" : "reader";
-  metrics.websocketJoins += 1;
-  metrics.lastJoinAt = Date.now();
-  metrics.lastJoinRoom = roomName;
-  metrics.lastJoinRole = socket.role;
-
-  const room = getRoom(roomName);
-  const storedRoom = readStoredRoom(roomName);
-  if (storedRoom) {
-    applyRoomState(room, storedRoom);
-  } else {
-    persistRoomState(room);
-  }
-
-  room.clients.add(socket);
-  sendRoomState(socket, room);
-}
-
-function updateRoomState(socket, message) {
-  if (!socket.room || socket.role !== "leader") {
-    return;
-  }
-
-  const room = getRoom(socket.room);
-  metrics.websocketStateUpdates += 1;
-
-  if (!applyIncomingRoomState(room, message)) {
-    metrics.ignoredStaleStateUpdates += 1;
-    sendRoomState(socket, room);
-    return;
-  }
-
-  scheduleRoomClear(socket.room, room);
-  broadcastRoomState(room);
-  persistRoomState(room);
-}
-
-function updateRoomAction(socket, message) {
-  if (!socket.room || socket.role !== "leader") {
-    return;
-  }
-
-  const room = getRoom(socket.room);
-  metrics.actionUpdates += 1;
-  recordActionMetric(socket.room, "websocket");
-
-  if (!applyRoomAction(room, message)) {
-    metrics.ignoredStaleStateUpdates += 1;
-    sendRoomState(socket, room);
-    return;
-  }
-
-  scheduleRoomClear(socket.room, room);
-  broadcastRoomState(room);
-  persistRoomState(room);
-}
-
-function leaveRoom(socket) {
-  if (!socket.room) {
-    return;
-  }
-
-  const room = rooms.get(socket.room);
-  if (room) {
-    room.clients.delete(socket);
-    maybeDeleteRoom(socket.room, room);
-  }
-
-  socket.room = null;
-}
-
 function getRoom(roomName) {
   if (!rooms.has(roomName)) {
     rooms.set(roomName, {
       name: roomName,
-      clients: new Set(),
       eventStreams: new Set(),
       sequence: [],
       expiresAt: null,
@@ -657,7 +499,7 @@ function normalizeExpiresAt(value) {
 function countLocalClients() {
   let count = 0;
   for (const room of rooms.values()) {
-    count += room.clients.size + room.eventStreams.size;
+    count += room.eventStreams.size;
   }
 
   return count;
@@ -666,8 +508,7 @@ function countLocalClients() {
 function getClientsByRoom() {
   return [...rooms.values()].map((room) => ({
     room: room.name,
-    clients: room.clients.size + room.eventStreams.size,
-    websocketClients: room.clients.size,
+    clients: room.eventStreams.size,
     eventStreamClients: room.eventStreams.size,
     sequenceLength: room.sequence.length,
     revision: normalizeRevision(room.revision)
@@ -675,7 +516,7 @@ function getClientsByRoom() {
 }
 
 function maybeDeleteRoom(roomName, room) {
-  if (room.clients.size === 0 && room.eventStreams.size === 0) {
+  if (room.eventStreams.size === 0) {
     clearTimeout(room.clearTimer);
     rooms.delete(roomName);
   }
@@ -706,16 +547,8 @@ function createJsonHeaders(extraHeaders = {}) {
   };
 }
 
-function sendRoomState(socket, room) {
-  send(socket, createStateMessage(room));
-}
-
 function broadcastRoomState(room) {
   const message = createStateMessage(room);
-  for (const client of room.clients) {
-    send(client, message);
-  }
-
   for (const eventStream of room.eventStreams) {
     sendEventStreamState(eventStream, message);
   }
@@ -735,12 +568,6 @@ function createStateMessage(room) {
     updatedAt: Number(room.updatedAt || Date.now()),
     autoClearMs: AUTO_CLEAR_MS
   };
-}
-
-function send(socket, message) {
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
-  }
 }
 
 function sendEventStreamState(response, message) {

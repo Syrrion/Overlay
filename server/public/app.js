@@ -8,20 +8,16 @@ const SYMBOL_NAMES = {
 };
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
-const HTTP_FALLBACK_POLL_MS = 750;
-const HTTP_FALLBACK_PENDING_POLL_MS = 250;
-const WS_STATE_ACK_TIMEOUT_MS = 900;
-const ACTION_ACK_FALLBACK_MS = 550;
+const STATE_POLL_MS = 1000;
+const PENDING_STATE_POLL_MS = 250;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
 const mode = view === "palette" ? "leader" : normalizeMode(params.get("mode") || params.get("role"));
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
-const relayUrl = getRelayUrl(params.get("relay"));
+const relayBaseUrl = getRelayBaseUrl(params.get("relay"));
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const sourceId = createSourceId();
-
-window.__uraHandlesDesktopBridge = true;
 
 if (view !== "page") {
   document.body.innerHTML = createCompactMarkup(view);
@@ -62,10 +58,6 @@ let fallbackPollTimer = null;
 let httpActionKeysInFlight = new Set();
 let localSourceRevision = 0;
 let pendingActions = [];
-let reconnectTimer = null;
-let socket = null;
-let webSocketConfirmed = false;
-let webSocketStateTimer = null;
 
 document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 
@@ -136,74 +128,9 @@ function configureModeUi() {
 }
 
 function connectRelay() {
-  clearTimeout(reconnectTimer);
-  reconnectTimer = null;
-
-  try {
-    socket = new WebSocket(relayUrl);
-  } catch (error) {
-    setStatus(`Relais invalide: ${error.message}`, "error");
-    startHttpFallback();
-    return;
-  }
-
-  socket.addEventListener("open", () => {
-    webSocketConfirmed = false;
-    state.connected = false;
-    setStatus("Connexion au salon...", "pending");
-    sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
-    scheduleWebSocketStateTimeout();
-    resetLeaderStateOnce();
-    flushPendingActions();
-  });
-
-  socket.addEventListener("message", (event) => {
-    handleMessage(event.data);
-  });
-
-  socket.addEventListener("close", () => {
-    clearWebSocketStateTimeout();
-    webSocketConfirmed = false;
-    state.connected = false;
-    setStatus("WebSocket deconnecte. Relais HTTP actif...", "pending");
-    startHttpFallback();
-    reconnectTimer = window.setTimeout(connectRelay, 2000);
-  });
-
-  socket.addEventListener("error", () => {
-    if (!state.connected) {
-      clearWebSocketStateTimeout();
-      webSocketConfirmed = false;
-      setStatus("WebSocket indisponible. Relais HTTP actif...", "pending");
-      startHttpFallback();
-    }
-  });
-}
-
-function handleMessage(rawMessage) {
-  let message = null;
-
-  try {
-    message = JSON.parse(rawMessage);
-  } catch (_error) {
-    return;
-  }
-
-  if (!message || typeof message !== "object") {
-    return;
-  }
-
-  if (message.type === "error" && typeof message.message === "string") {
-    setStatus(message.message, "error");
-    return;
-  }
-
-  if (message.type !== "state") {
-    return;
-  }
-
-  confirmWebSocketState();
-  applyStateMessage(message);
+  startRealtimeRelay();
+  resetLeaderStateOnce();
+  flushPendingActions();
 }
 
 function applyStateMessage(message) {
@@ -352,47 +279,8 @@ function publishLeaderAction(action, extra = {}) {
   pendingActions.push(message);
   updatePendingSourceRevision();
 
-  const sentDesktop = sendDesktopLeaderAction(message);
-  const sentSocket = sendSocketMessage(message);
-
-  if (!sentSocket) {
-    sendHttpLeaderAction(message);
-  } else {
-    scheduleHttpActionFallback(message);
-  }
-
-  if (sentSocket) {
-    setStatus(webSocketConfirmed ? "Connecté" : "Attente confirmation relais...", webSocketConfirmed ? "connected" : "pending");
-    return;
-  }
-
-  if (sentDesktop) {
-    setStatus("Bridge Electron envoye, attente du relais...", "pending");
-    return;
-  }
-
-  setStatus("Action en attente du relais HTTP...", "pending");
-}
-
-function sendDesktopLeaderAction(message) {
-  if (!window.desktopOverlay || typeof window.desktopOverlay.sendLeaderAction !== "function") {
-    return false;
-  }
-
-  if (typeof window.desktopOverlay.sendLeaderActionResult === "function") {
-    window.desktopOverlay.sendLeaderActionResult(message)
-      .then((result) => {
-        if (!result || result.ok !== true) {
-          sendHttpLeaderAction(message);
-        }
-      })
-      .catch(() => {
-        sendHttpLeaderAction(message);
-      });
-    return true;
-  }
-
-  return window.desktopOverlay.sendLeaderAction(message) === true;
+  sendHttpLeaderAction(message);
+  setStatus("Action envoyee au relais...", "pending");
 }
 
 function syncExpiryBar() {
@@ -463,58 +351,8 @@ function setStatus(message, variant) {
   elements.statusPill.textContent = "Connexion";
 }
 
-function sendSocketMessage(message) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    return false;
-  }
-
-  socket.send(JSON.stringify(message));
-  return true;
-}
-
-function scheduleWebSocketStateTimeout() {
-  clearWebSocketStateTimeout();
-  webSocketStateTimer = window.setTimeout(() => {
-    if (!webSocketConfirmed) {
-      setStatus("WebSocket sans reponse. Relais temps reel actif...", "pending");
-      startHttpFallback();
-    }
-  }, WS_STATE_ACK_TIMEOUT_MS);
-}
-
-function clearWebSocketStateTimeout() {
-  clearTimeout(webSocketStateTimer);
-  webSocketStateTimer = null;
-}
-
-function confirmWebSocketState() {
-  webSocketConfirmed = true;
-  state.connected = true;
-  clearWebSocketStateTimeout();
-  stopHttpFallback();
-  setStatus("Connecté", "connected");
-}
-
-function isWebSocketConfirmedOpen() {
-  return webSocketConfirmed && socket && socket.readyState === WebSocket.OPEN;
-}
-
-function scheduleHttpActionFallback(message) {
-  window.setTimeout(() => {
-    if (isActionPending(message)) {
-      sendHttpLeaderAction(message);
-    }
-  }, ACTION_ACK_FALLBACK_MS);
-}
-
-function isActionPending(message) {
-  return pendingActions.some((action) => {
-    return action.sourceId === message.sourceId && normalizeRevision(action.sourceRevision) === normalizeRevision(message.sourceRevision);
-  });
-}
-
-function startHttpFallback() {
-  if (isEventSourceFallbackOpen() || startEventSourceFallback()) {
+function startRealtimeRelay() {
+  if (isEventSourceRelayOpen() || startEventSourceRelay()) {
     return;
   }
 
@@ -525,14 +363,14 @@ function startHttpFallback() {
   scheduleHttpFallbackPoll(0);
 }
 
-function stopHttpFallback() {
-  closeEventSourceFallback();
+function stopRealtimeRelay() {
+  closeEventSourceRelay();
   clearTimeout(fallbackPollTimer);
   fallbackPollTimer = null;
   fallbackPollInFlight = false;
 }
 
-function startEventSourceFallback() {
+function startEventSourceRelay() {
   if (eventSource || typeof EventSource !== "function") {
     return false;
   }
@@ -548,7 +386,8 @@ function startEventSourceFallback() {
     eventSourceConnected = true;
     clearTimeout(fallbackPollTimer);
     fallbackPollTimer = null;
-    setStatus("Relais temps reel actif (WebSocket indisponible)", "pending");
+    state.connected = true;
+    setStatus("Connecté", "connected");
   });
 
   eventSource.addEventListener("state", (event) => {
@@ -570,7 +409,7 @@ function startEventSourceFallback() {
   return true;
 }
 
-function closeEventSourceFallback() {
+function closeEventSourceRelay() {
   if (eventSource) {
     eventSource.close();
   }
@@ -578,7 +417,7 @@ function closeEventSourceFallback() {
   eventSourceConnected = false;
 }
 
-function isEventSourceFallbackOpen() {
+function isEventSourceRelayOpen() {
   return eventSource && eventSource.readyState !== EventSource.CLOSED;
 }
 
@@ -586,9 +425,10 @@ function applyEventStreamState(rawMessage) {
   try {
     applyStateMessage(JSON.parse(rawMessage));
     eventSourceConnected = true;
+    state.connected = true;
     clearTimeout(fallbackPollTimer);
     fallbackPollTimer = null;
-    setStatus("Relais temps reel actif (WebSocket indisponible)", "pending");
+    setStatus("Connecté", "connected");
   } catch (_error) {
     // Ignore malformed stream frames.
   }
@@ -602,7 +442,7 @@ function scheduleHttpFallbackPoll(delay = getHttpFallbackPollDelay()) {
 async function pollHttpState() {
   fallbackPollTimer = null;
 
-  if (isWebSocketConfirmedOpen() || eventSourceConnected) {
+  if (eventSourceConnected) {
     return;
   }
 
@@ -620,19 +460,19 @@ async function pollHttpState() {
     }
 
     applyStateMessage(await response.json());
-    setStatus("Relais HTTP actif (WebSocket indisponible)", "pending");
+    setStatus("Relais HTTP de secours actif", "pending");
   } catch (error) {
     setStatus(`Relais indisponible: ${error.message}`, "error");
   } finally {
     fallbackPollInFlight = false;
-    if (!isWebSocketConfirmedOpen() && !eventSourceConnected) {
+    if (!eventSourceConnected) {
       scheduleHttpFallbackPoll();
     }
   }
 }
 
 function getHttpFallbackPollDelay() {
-  return pendingActions.length > 0 ? HTTP_FALLBACK_PENDING_POLL_MS : HTTP_FALLBACK_POLL_MS;
+  return pendingActions.length > 0 ? PENDING_STATE_POLL_MS : STATE_POLL_MS;
 }
 
 async function sendHttpLeaderAction(message) {
@@ -642,7 +482,7 @@ async function sendHttpLeaderAction(message) {
   }
 
   httpActionKeysInFlight.add(actionKey);
-  startHttpFallback();
+  startRealtimeRelay();
 
   try {
     const response = await fetch(getRoomStateUrl(true), {
@@ -668,7 +508,7 @@ async function sendHttpLeaderAction(message) {
 }
 
 function getRoomStateUrl(forWrite) {
-  const url = new URL(getRelayHttpBaseUrl(relayUrl));
+  const url = new URL(getRelayHttpBaseUrl(relayBaseUrl));
   url.pathname = `/api/rooms/${encodeURIComponent(room)}${forWrite ? "/state" : ""}`;
   url.search = "";
   url.hash = "";
@@ -677,7 +517,6 @@ function getRoomStateUrl(forWrite) {
 
 function getRelayHttpBaseUrl(value) {
   const url = new URL(value);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
   url.pathname = "/";
   url.search = "";
   url.hash = "";
@@ -739,12 +578,7 @@ function updatePendingSourceRevision() {
 
 function flushPendingActions() {
   for (const action of pendingActions) {
-    sendDesktopLeaderAction(action);
-    if (sendSocketMessage(action)) {
-      scheduleHttpActionFallback(action);
-    } else {
-      sendHttpLeaderAction(action);
-    }
+    sendHttpLeaderAction(action);
   }
 }
 
@@ -795,33 +629,33 @@ function switchMode(nextMode) {
   window.location.assign(nextUrl.toString());
 }
 
-function getRelayUrl(overrideValue) {
-  const defaultRelayUrl = getDefaultRelayUrl();
+function getRelayBaseUrl(overrideValue) {
+  const defaultRelayBaseUrl = getDefaultRelayBaseUrl();
   const rawValue = String(overrideValue || "").trim();
 
   if (!rawValue) {
-    return defaultRelayUrl;
+    return defaultRelayBaseUrl;
   }
 
-  let withScheme = rawValue.replace(/^https:\/\//i, "wss://").replace(/^http:\/\//i, "ws://");
-  if (!/^wss?:\/\//i.test(withScheme)) {
-    withScheme = `${window.location.protocol === "https:" ? "wss" : "ws"}://${withScheme}`;
+  let withScheme = rawValue;
+  if (!/^https?:\/\//i.test(withScheme)) {
+    withScheme = `${window.location.protocol === "https:" ? "https" : "http"}://${withScheme}`;
   }
 
   const url = new URL(withScheme);
-  if (url.pathname === "/") {
-    url.pathname = "/ws";
-  }
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
 
   return url.toString().replace(/\/$/, "");
 }
 
-function getDefaultRelayUrl() {
+function getDefaultRelayBaseUrl() {
   if (!window.location.host) {
-    return "ws://127.0.0.1:8787/ws";
+    return "http://127.0.0.1:8787";
   }
 
-  return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws`;
+  return `${window.location.protocol}//${window.location.host}`;
 }
 
 function symbolSvg(symbol) {
@@ -882,7 +716,7 @@ function dragGripSvg() {
 }
 
 function getRoomEventsUrl() {
-  const url = new URL(getRelayHttpBaseUrl(relayUrl));
+  const url = new URL(getRelayHttpBaseUrl(relayBaseUrl));
   url.pathname = `/api/rooms/${encodeURIComponent(room)}/events`;
   url.search = "";
   url.hash = "";
@@ -891,6 +725,6 @@ function getRoomEventsUrl() {
 
 function getFallbackStatusMessage() {
   return eventSourceConnected
-    ? "Relais temps reel actif (WebSocket indisponible)"
-    : "Relais HTTP actif (WebSocket indisponible)";
+    ? "Relais temps reel actif"
+    : "Relais HTTP de secours actif";
 }
