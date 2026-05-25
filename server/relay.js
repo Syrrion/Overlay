@@ -33,6 +33,8 @@ const metrics = {
   lastJoinAt: 0,
   lastJoinRole: "",
   lastJoinRoom: "",
+  eventStreamConnections: 0,
+  eventStreamEvents: 0,
   stateWriteErrors: 0,
   stateWrites: 0,
   websocketConnections: 0,
@@ -164,8 +166,9 @@ function handleMessage(socket, data) {
 }
 
 function handleApiRequest(request, response, requestUrl) {
-  const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/state)?$/i.exec(requestUrl.pathname);
+  const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/(state|events))?$/i.exec(requestUrl.pathname);
   const roomName = normalizeRoom(match?.[1]);
+  const roomResource = match?.[2] || "";
 
   if (!roomName) {
     sendJson(response, 404, { ok: false, error: "Salon invalide." });
@@ -181,12 +184,26 @@ function handleApiRequest(request, response, requestUrl) {
     return;
   }
 
-  if (request.method === "GET" || request.method === "HEAD") {
+  if (roomResource === "events") {
+    if (request.method === "GET") {
+      openRoomEventStream(request, response, roomName);
+      return;
+    }
+
+    response.writeHead(405, {
+      ...createJsonHeaders(),
+      "allow": "GET, OPTIONS"
+    });
+    response.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+    return;
+  }
+
+  if (!roomResource && (request.method === "GET" || request.method === "HEAD")) {
     sendJson(response, 200, getRoomStateMessage(roomName), request.method === "HEAD");
     return;
   }
 
-  if (request.method === "POST" && requestUrl.pathname.endsWith("/state")) {
+  if (request.method === "POST" && roomResource === "state") {
     readJsonBody(request, response, (message) => {
       const room = getRoom(roomName);
       metrics.httpStateUpdates += 1;
@@ -250,6 +267,49 @@ function readJsonBody(request, response, callback) {
       sendJson(response, 400, { ok: false, error: "Lecture de la requete impossible." });
     }
   });
+}
+
+function openRoomEventStream(request, response, roomName) {
+  const room = getRoom(roomName);
+  const storedRoom = readStoredRoom(roomName);
+  if (storedRoom) {
+    applyRoomState(room, storedRoom);
+  } else {
+    persistRoomState(room);
+  }
+
+  response.writeHead(200, createEventStreamHeaders());
+  response.flushHeaders?.();
+  room.eventStreams.add(response);
+  metrics.eventStreamConnections += 1;
+  metrics.lastJoinAt = Date.now();
+  metrics.lastJoinRoom = roomName;
+  metrics.lastJoinRole = "event-stream";
+
+  sendEventStreamState(response, createStateMessage(room));
+
+  const keepAliveTimer = setInterval(() => {
+    if (!response.writableEnded) {
+      response.write(": keepalive\n\n");
+    }
+  }, 15_000);
+  keepAliveTimer.unref?.();
+
+  request.on("close", () => {
+    clearInterval(keepAliveTimer);
+    room.eventStreams.delete(response);
+    maybeDeleteRoom(roomName, room);
+  });
+}
+
+function createEventStreamHeaders() {
+  return {
+    "access-control-allow-origin": "*",
+    "cache-control": "no-cache, no-transform",
+    "connection": "keep-alive",
+    "content-type": "text/event-stream; charset=utf-8",
+    "x-accel-buffering": "no"
+  };
 }
 
 function getRoomStateMessage(roomName) {
@@ -346,10 +406,7 @@ function leaveRoom(socket) {
   const room = rooms.get(socket.room);
   if (room) {
     room.clients.delete(socket);
-    if (room.clients.size === 0) {
-      clearTimeout(room.clearTimer);
-      rooms.delete(socket.room);
-    }
+    maybeDeleteRoom(socket.room, room);
   }
 
   socket.room = null;
@@ -360,6 +417,7 @@ function getRoom(roomName) {
     rooms.set(roomName, {
       name: roomName,
       clients: new Set(),
+      eventStreams: new Set(),
       sequence: [],
       expiresAt: null,
       revision: 0,
@@ -599,7 +657,7 @@ function normalizeExpiresAt(value) {
 function countLocalClients() {
   let count = 0;
   for (const room of rooms.values()) {
-    count += room.clients.size;
+    count += room.clients.size + room.eventStreams.size;
   }
 
   return count;
@@ -608,10 +666,19 @@ function countLocalClients() {
 function getClientsByRoom() {
   return [...rooms.values()].map((room) => ({
     room: room.name,
-    clients: room.clients.size,
+    clients: room.clients.size + room.eventStreams.size,
+    websocketClients: room.clients.size,
+    eventStreamClients: room.eventStreams.size,
     sequenceLength: room.sequence.length,
     revision: normalizeRevision(room.revision)
   }));
+}
+
+function maybeDeleteRoom(roomName, room) {
+  if (room.clients.size === 0 && room.eventStreams.size === 0) {
+    clearTimeout(room.clearTimer);
+    rooms.delete(roomName);
+  }
 }
 
 function recordActionMetric(roomName, transport) {
@@ -648,6 +715,12 @@ function broadcastRoomState(room) {
   for (const client of room.clients) {
     send(client, message);
   }
+
+  for (const eventStream of room.eventStreams) {
+    sendEventStreamState(eventStream, message);
+  }
+
+  metrics.eventStreamEvents += room.eventStreams.size;
 }
 
 function createStateMessage(room) {
@@ -667,6 +740,12 @@ function createStateMessage(room) {
 function send(socket, message) {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(message));
+  }
+}
+
+function sendEventStreamState(response, message) {
+  if (!response.writableEnded) {
+    response.write(`event: state\ndata: ${JSON.stringify(message)}\n\n`);
   }
 }
 

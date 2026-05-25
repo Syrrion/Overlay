@@ -42,7 +42,7 @@ Sur cPanel/02switch, il ne faut generalement pas ouvrir un port public manuel. L
 wscat -c wss://ura.syrion.site/ws
 ```
 
-Si ce test retourne une page HTTP, un code `200`, `404`, `429` ou ne declenche aucun `websocketJoins` dans `/health`, l'upgrade WebSocket est encore bloque par la couche cPanel/proxy/WAF avant d'arriver au relais Node.
+Si ce test retourne une page HTTP, un code `200`, `404`, `426`, `429` ou ne declenche aucun `websocketJoins` dans `/health`, l'upgrade WebSocket est encore bloque par la couche cPanel/proxy/WAF avant d'arriver au relais Node. Le client web bascule alors sur un flux Server-Sent Events via `/api/rooms/<room>/events`, ce qui garde une diffusion temps reel compatible cPanel sans polling permanent.
 
 ## Page web
 

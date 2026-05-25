@@ -54,6 +54,8 @@ const state = {
 };
 
 let didResetOnJoin = false;
+let eventSource = null;
+let eventSourceConnected = false;
 let expiryTimer = null;
 let fallbackPollInFlight = false;
 let fallbackPollTimer = null;
@@ -474,7 +476,7 @@ function scheduleWebSocketStateTimeout() {
   clearWebSocketStateTimeout();
   webSocketStateTimer = window.setTimeout(() => {
     if (!webSocketConfirmed) {
-      setStatus("WebSocket sans reponse. Relais HTTP actif...", "pending");
+      setStatus("WebSocket sans reponse. Relais temps reel actif...", "pending");
       startHttpFallback();
     }
   }, WS_STATE_ACK_TIMEOUT_MS);
@@ -512,6 +514,10 @@ function isActionPending(message) {
 }
 
 function startHttpFallback() {
+  if (isEventSourceFallbackOpen() || startEventSourceFallback()) {
+    return;
+  }
+
   if (fallbackPollTimer || fallbackPollInFlight) {
     return;
   }
@@ -520,9 +526,72 @@ function startHttpFallback() {
 }
 
 function stopHttpFallback() {
+  closeEventSourceFallback();
   clearTimeout(fallbackPollTimer);
   fallbackPollTimer = null;
   fallbackPollInFlight = false;
+}
+
+function startEventSourceFallback() {
+  if (eventSource || typeof EventSource !== "function") {
+    return false;
+  }
+
+  try {
+    eventSource = new EventSource(getRoomEventsUrl());
+  } catch (_error) {
+    eventSource = null;
+    return false;
+  }
+
+  eventSource.addEventListener("open", () => {
+    eventSourceConnected = true;
+    clearTimeout(fallbackPollTimer);
+    fallbackPollTimer = null;
+    setStatus("Relais temps reel actif (WebSocket indisponible)", "pending");
+  });
+
+  eventSource.addEventListener("state", (event) => {
+    applyEventStreamState(event.data);
+  });
+
+  eventSource.addEventListener("message", (event) => {
+    applyEventStreamState(event.data);
+  });
+
+  eventSource.addEventListener("error", () => {
+    eventSourceConnected = false;
+    setStatus("Relais temps reel en reconnexion...", "pending");
+    if (!fallbackPollTimer && !fallbackPollInFlight) {
+      scheduleHttpFallbackPoll(getHttpFallbackPollDelay());
+    }
+  });
+
+  return true;
+}
+
+function closeEventSourceFallback() {
+  if (eventSource) {
+    eventSource.close();
+  }
+  eventSource = null;
+  eventSourceConnected = false;
+}
+
+function isEventSourceFallbackOpen() {
+  return eventSource && eventSource.readyState !== EventSource.CLOSED;
+}
+
+function applyEventStreamState(rawMessage) {
+  try {
+    applyStateMessage(JSON.parse(rawMessage));
+    eventSourceConnected = true;
+    clearTimeout(fallbackPollTimer);
+    fallbackPollTimer = null;
+    setStatus("Relais temps reel actif (WebSocket indisponible)", "pending");
+  } catch (_error) {
+    // Ignore malformed stream frames.
+  }
 }
 
 function scheduleHttpFallbackPoll(delay = getHttpFallbackPollDelay()) {
@@ -533,7 +602,7 @@ function scheduleHttpFallbackPoll(delay = getHttpFallbackPollDelay()) {
 async function pollHttpState() {
   fallbackPollTimer = null;
 
-  if (isWebSocketConfirmedOpen()) {
+  if (isWebSocketConfirmedOpen() || eventSourceConnected) {
     return;
   }
 
@@ -556,7 +625,7 @@ async function pollHttpState() {
     setStatus(`Relais indisponible: ${error.message}`, "error");
   } finally {
     fallbackPollInFlight = false;
-    if (!isWebSocketConfirmedOpen()) {
+    if (!isWebSocketConfirmedOpen() && !eventSourceConnected) {
       scheduleHttpFallbackPoll();
     }
   }
@@ -588,7 +657,7 @@ async function sendHttpLeaderAction(message) {
     }
 
     applyStateMessage(await response.json());
-    setStatus("Relais HTTP actif (WebSocket indisponible)", "pending");
+    setStatus(getFallbackStatusMessage(), "pending");
     return true;
   } catch (error) {
     setStatus(`Envoi impossible: ${error.message}`, "error");
@@ -810,4 +879,18 @@ function dragGripSvg() {
       <path d="M5 12h.01M11 12h.01M5 24h.01M11 24h.01M5 36h.01M11 36h.01" />
     </svg>
   `;
+}
+
+function getRoomEventsUrl() {
+  const url = new URL(getRelayHttpBaseUrl(relayUrl));
+  url.pathname = `/api/rooms/${encodeURIComponent(room)}/events`;
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+function getFallbackStatusMessage() {
+  return eventSourceConnected
+    ? "Relais temps reel actif (WebSocket indisponible)"
+    : "Relais HTTP actif (WebSocket indisponible)";
 }
