@@ -1,4 +1,5 @@
 const fs = require("node:fs");
+const fsp = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
 const { WebSocket, WebSocketServer } = require("ws");
@@ -7,6 +8,7 @@ const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const AUTO_CLEAR_MS = 20_000;
 const STATE_POLL_MS = 100;
 const MAX_JSON_BODY_BYTES = 16 * 1024;
+const STATE_WRITE_DEBOUNCE_MS = 50;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
@@ -32,6 +34,10 @@ const metrics = {
   lastStateWriteError: ""
 };
 let serverRevision = Date.now() * 1000;
+let stateStore = readStateStoreFromDisk();
+let stateWriteDirty = false;
+let stateWriteInFlight = false;
+let stateWriteTimer = null;
 const sharedStatePoller = setInterval(syncRoomsFromSharedState, STATE_POLL_MS);
 sharedStatePoller.unref?.();
 
@@ -460,7 +466,7 @@ function persistRoomState(room) {
     updatedAt: Number(room.updatedAt || Date.now())
   };
   store.updatedAt = Date.now();
-  writeStateStore(store);
+  scheduleStateStoreWrite();
 }
 
 function readStoredRoom(roomName) {
@@ -469,6 +475,14 @@ function readStoredRoom(roomName) {
 }
 
 function readStateStore() {
+  if (!stateStore || typeof stateStore !== "object") {
+    stateStore = createEmptyStore();
+  }
+
+  return stateStore;
+}
+
+function readStateStoreFromDisk() {
   try {
     const rawStore = fs.readFileSync(STATE_FILE, "utf8");
     const store = JSON.parse(rawStore);
@@ -485,14 +499,35 @@ function readStateStore() {
   }
 }
 
-function writeStateStore(store) {
+function scheduleStateStoreWrite() {
+  stateWriteDirty = true;
+  if (stateWriteTimer || stateWriteInFlight) {
+    return;
+  }
+
+  stateWriteTimer = setTimeout(flushStateStoreWrite, STATE_WRITE_DEBOUNCE_MS);
+  stateWriteTimer.unref?.();
+}
+
+async function flushStateStoreWrite() {
+  clearTimeout(stateWriteTimer);
+  stateWriteTimer = null;
+
+  if (stateWriteInFlight || !stateWriteDirty) {
+    return;
+  }
+
+  stateWriteDirty = false;
+  stateWriteInFlight = true;
+
+  const storeSnapshot = JSON.stringify(readStateStore());
   const stateDir = path.dirname(STATE_FILE);
   const tempFile = `${STATE_FILE}.${process.pid}.${Date.now()}.tmp`;
 
   try {
-    fs.mkdirSync(stateDir, { recursive: true });
-    fs.writeFileSync(tempFile, JSON.stringify(store), "utf8");
-    fs.renameSync(tempFile, STATE_FILE);
+    await fsp.mkdir(stateDir, { recursive: true });
+    await fsp.writeFile(tempFile, storeSnapshot, "utf8");
+    await fsp.rename(tempFile, STATE_FILE);
     metrics.stateWrites += 1;
     metrics.lastStateWriteError = "";
   } catch (error) {
@@ -500,9 +535,14 @@ function writeStateStore(store) {
     metrics.lastStateWriteError = error.message;
     console.warn(`Unable to write relay state: ${error.message}`);
     try {
-      fs.rmSync(tempFile, { force: true });
+      await fsp.rm(tempFile, { force: true });
     } catch (_cleanupError) {
       // Ignore cleanup errors.
+    }
+  } finally {
+    stateWriteInFlight = false;
+    if (stateWriteDirty) {
+      scheduleStateStoreWrite();
     }
   }
 }

@@ -8,14 +8,12 @@ const SYMBOL_NAMES = {
 };
 const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
-const HTTP_POLL_MS = 250;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
 const mode = view === "palette" ? "leader" : normalizeMode(params.get("mode") || params.get("role"));
 const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
 const relayUrl = getRelayUrl(params.get("relay"));
-const relayHttpUrl = getRelayHttpUrl(relayUrl);
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const sourceId = createSourceId();
 
@@ -43,10 +41,8 @@ const elements = {
 const state = {
   autoClearMs: DEFAULT_AUTO_CLEAR_MS,
   connected: false,
-  httpConnected: false,
   expiresAt: null,
   pendingSourceRevision: 0,
-  publishing: false,
   revision: 0,
   sequence: []
 };
@@ -54,8 +50,7 @@ const state = {
 let didResetOnJoin = false;
 let expiryTimer = null;
 let localSourceRevision = 0;
-let pollInFlight = false;
-let pollTimer = null;
+let pendingActions = [];
 let reconnectTimer = null;
 let socket = null;
 
@@ -67,7 +62,6 @@ renderLeaderControls();
 syncExpiryBar();
 setStatus("Connexion au relais...", "pending");
 connectRelay();
-startHttpPolling();
 
 if (shouldResetOnJoin) {
   window.setTimeout(resetLeaderStateOnce, 250);
@@ -144,6 +138,7 @@ function connectRelay() {
     setStatus("Connecté", "connected");
     sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
     resetLeaderStateOnce();
+    flushPendingActions();
   });
 
   socket.addEventListener("message", (event) => {
@@ -152,54 +147,15 @@ function connectRelay() {
 
   socket.addEventListener("close", () => {
     state.connected = false;
-    if (!state.httpConnected) {
-      setStatus("Relais deconnecte. Reconnexion...", "pending");
-    }
+    setStatus("Relais deconnecte. Reconnexion...", "pending");
     reconnectTimer = window.setTimeout(connectRelay, 2000);
   });
 
   socket.addEventListener("error", () => {
-    if (!state.connected && !state.httpConnected) {
+    if (!state.connected) {
       setStatus("Connexion impossible. Nouvelle tentative...", "error");
     }
   });
-}
-
-function startHttpPolling() {
-  clearInterval(pollTimer);
-  pollTimer = window.setInterval(pollRoomState, HTTP_POLL_MS);
-  pollRoomState();
-}
-
-async function pollRoomState() {
-  if (pollInFlight) {
-    return;
-  }
-
-  pollInFlight = true;
-  try {
-    const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}`, {
-      cache: "no-store"
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    state.httpConnected = true;
-    if (!state.connected && !state.publishing) {
-      setStatus("Connecté", "connected");
-    }
-
-    applyStateMessage(await response.json());
-  } catch (_error) {
-    state.httpConnected = false;
-    if (!state.connected) {
-      setStatus("API relais indisponible. Nouvelle tentative...", "error");
-    }
-  } finally {
-    pollInFlight = false;
-  }
 }
 
 function handleMessage(rawMessage) {
@@ -282,10 +238,9 @@ function renderLeaderControls() {
 
   elements.symbolActions.innerHTML = SYMBOLS.map((symbol) => {
     const selected = state.sequence.includes(symbol);
-    const disabled = selected || state.sequence.length >= SYMBOLS.length;
 
     return `
-      <button class="symbol-button ${selected ? "is-selected" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}" ${disabled ? "disabled" : ""}>
+      <button class="symbol-button ${selected ? "is-selected" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}">
         ${symbolSvg(symbol)}
       </button>
     `;
@@ -308,24 +263,27 @@ function handleLeaderSymbol(symbol) {
     return;
   }
 
-  if (!SYMBOLS.includes(symbol) || state.sequence.includes(symbol) || state.sequence.length >= SYMBOLS.length) {
+  if (!SYMBOLS.includes(symbol)) {
     return;
   }
 
-  const nextSequence = [...state.sequence, symbol];
-  if (nextSequence.length === SYMBOLS.length - 1) {
-    const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
-    if (lastSymbol) {
-      nextSequence.push(lastSymbol);
+  if (!state.sequence.includes(symbol) && state.sequence.length < SYMBOLS.length) {
+    const nextSequence = [...state.sequence, symbol];
+    if (nextSequence.length === SYMBOLS.length - 1) {
+      const lastSymbol = SYMBOLS.find((candidate) => !nextSequence.includes(candidate));
+      if (lastSymbol) {
+        nextSequence.push(lastSymbol);
+      }
     }
+
+    state.sequence = nextSequence;
+    state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
+    renderSequence();
+    renderLeaderControls();
+    syncExpiryBar();
   }
 
-  state.sequence = nextSequence;
-  state.expiresAt = state.sequence.length === SYMBOLS.length ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
   publishLeaderAction("append", { symbol });
-  renderSequence();
-  renderLeaderControls();
-  syncExpiryBar();
 }
 
 function clearLeaderSequence() {
@@ -357,7 +315,6 @@ function resetLeaderStateOnce() {
 
 function publishLeaderAction(action, extra = {}) {
   const sourceRevision = nextLocalSourceRevision();
-  state.pendingSourceRevision = sourceRevision;
 
   const message = {
     type: "action",
@@ -369,41 +326,15 @@ function publishLeaderAction(action, extra = {}) {
     autoClearMs: DEFAULT_AUTO_CLEAR_MS
   };
 
-  state.publishing = true;
+  pendingActions.push(message);
+  updatePendingSourceRevision();
+
   if (sendSocketMessage(message)) {
     setStatus("Connecté", "connected");
     return;
   }
 
-  setStatus("Publication HTTP...", "pending");
-  publishLeaderActionHttp(message);
-}
-
-async function publishLeaderActionHttp(message) {
-  try {
-    const response = await fetch(`${relayHttpUrl}/api/rooms/${encodeURIComponent(room)}/state`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(message)
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    state.httpConnected = true;
-    setStatus("Connecté", "connected");
-    applyStateMessage(await response.json());
-  } catch (error) {
-    state.publishing = false;
-    if (state.pendingSourceRevision === message.sourceRevision) {
-      state.pendingSourceRevision = 0;
-    }
-    setStatus(`Publication impossible: ${error.message}`, "error");
-    renderLeaderControls();
-  }
+  setStatus("Action en attente du WebSocket...", "pending");
 }
 
 function syncExpiryBar() {
@@ -521,9 +452,24 @@ function acknowledgePublish(message) {
     return;
   }
 
-  if (normalizeRevision(message.sourceRevision) >= state.pendingSourceRevision) {
-    state.pendingSourceRevision = 0;
-    state.publishing = false;
+  const acknowledgedRevision = normalizeRevision(message.sourceRevision);
+  if (!acknowledgedRevision) {
+    return;
+  }
+
+  pendingActions = pendingActions.filter((action) => normalizeRevision(action.sourceRevision) > acknowledgedRevision);
+  updatePendingSourceRevision();
+}
+
+function updatePendingSourceRevision() {
+  state.pendingSourceRevision = pendingActions.reduce((maxRevision, action) => {
+    return Math.max(maxRevision, normalizeRevision(action.sourceRevision));
+  }, 0);
+}
+
+function flushPendingActions() {
+  for (const action of pendingActions) {
+    sendSocketMessage(action);
   }
 }
 
@@ -596,12 +542,6 @@ function getDefaultRelayUrl() {
   }
 
   return `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}`;
-}
-
-function getRelayHttpUrl(webSocketUrl) {
-  const url = new URL(webSocketUrl);
-  url.protocol = url.protocol === "wss:" ? "https:" : "http:";
-  return url.toString().replace(/\/$/, "");
 }
 
 function symbolSvg(symbol) {
