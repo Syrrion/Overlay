@@ -17,6 +17,8 @@ const relayUrl = getRelayUrl(params.get("relay"));
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const sourceId = createSourceId();
 
+window.__uraHandlesDesktopBridge = true;
+
 if (view !== "page") {
   document.body.innerHTML = createCompactMarkup(view);
 }
@@ -329,12 +331,25 @@ function publishLeaderAction(action, extra = {}) {
   pendingActions.push(message);
   updatePendingSourceRevision();
 
+  if (sendDesktopLeaderAction(message)) {
+    setStatus("Connecté", "connected");
+    return;
+  }
+
   if (sendSocketMessage(message)) {
     setStatus("Connecté", "connected");
     return;
   }
 
   setStatus("Action en attente du WebSocket...", "pending");
+}
+
+function sendDesktopLeaderAction(message) {
+  if (!window.desktopOverlay || typeof window.desktopOverlay.sendLeaderAction !== "function") {
+    return false;
+  }
+
+  return window.desktopOverlay.sendLeaderAction(message) === true;
 }
 
 function syncExpiryBar() {

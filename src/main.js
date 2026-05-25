@@ -1,9 +1,11 @@
 const { app, BrowserWindow, globalShortcut, ipcMain, Menu, screen } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const { WebSocket } = require("ws");
 
 const DEFAULT_SERVER_URL = "ura.syrion.site";
 const DEFAULT_ROOM = "ura-helper";
+const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
   palette: { width: 486, height: 96 }
@@ -23,6 +25,9 @@ const OPACITY_MENU_OPTIONS = [0.5, 0.6, 0.7, 0.8, 0.9, 1];
 let controlWindow = null;
 let sequenceWindow = null;
 let paletteWindow = null;
+let desktopRelaySocket = null;
+let desktopRelayQueue = [];
+let desktopRelayReconnectTimer = null;
 let saveSettingsTimer = null;
 let settings = {};
 let suppressManagedWindowCloseQuit = false;
@@ -89,6 +94,8 @@ ipcMain.handle("session:start", (_event, options = {}) => {
     state.connected = false;
     state.message = "Chargement de la page web...";
 
+    connectDesktopRelay();
+
     createSequenceWindow();
 
     if (role === "leader") {
@@ -124,6 +131,10 @@ ipcMain.handle("window:setScale", (_event, target, scale) => {
 
   setWindowScale(windowKey, nextScale);
   return serializeState();
+});
+
+ipcMain.on("desktop:leader-action", (_event, message) => {
+  sendDesktopLeaderAction(message);
 });
 
 function createControlWindow() {
@@ -180,6 +191,7 @@ function createSequenceWindow() {
     skipTaskbar: true,
     acceptFirstMouse: true,
     webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -232,6 +244,7 @@ function createPaletteWindow() {
     skipTaskbar: true,
     acceptFirstMouse: true,
     webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -523,6 +536,8 @@ function loadManagedWebApp(window, view, mode, options = {}) {
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   window.webContents.on("did-finish-load", () => {
+    installDesktopPaletteForwarder(window, view);
+
     if (state.role !== "idle") {
       state.connected = true;
       state.message = "Page web chargee";
@@ -543,6 +558,48 @@ function loadManagedWebApp(window, view, mode, options = {}) {
   window.loadURL(buildWebAppUrl(view, mode, options));
 }
 
+function installDesktopPaletteForwarder(window, view) {
+  if (view !== "palette" || !window || window.isDestroyed()) {
+    return;
+  }
+
+  window.webContents.executeJavaScript(`
+    (() => {
+      if (window.__uraHandlesDesktopBridge || window.__uraDesktopForwarderInstalled || !window.desktopOverlay) {
+        return;
+      }
+
+      window.__uraDesktopForwarderInstalled = true;
+      const symbols = new Set(${JSON.stringify(SYMBOLS)});
+      const sourceId = "desktop-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+      let sourceRevision = 0;
+
+      const sendAction = (action, extra = {}) => {
+        sourceRevision += 1;
+        window.desktopOverlay.sendLeaderAction({
+          type: "action",
+          action,
+          sourceId,
+          sourceRevision,
+          ...extra
+        });
+      };
+
+      document.addEventListener("pointerdown", (event) => {
+        const symbolButton = event.target.closest("[data-symbol]");
+        if (symbolButton && symbols.has(symbolButton.dataset.symbol)) {
+          sendAction("append", { symbol: symbolButton.dataset.symbol });
+          return;
+        }
+
+        if (event.target.closest("#clear-sequence")) {
+          sendAction("clear");
+        }
+      }, true);
+    })();
+  `, true).catch(() => {});
+}
+
 function buildWebAppUrl(view, mode, options = {}) {
   const url = new URL(getRelayHttpUrl(state.serverUrl));
   url.searchParams.set("view", view);
@@ -557,7 +614,150 @@ function buildWebAppUrl(view, mode, options = {}) {
   return url.toString();
 }
 
+function connectDesktopRelay() {
+  clearTimeout(desktopRelayReconnectTimer);
+  desktopRelayReconnectTimer = null;
+
+  if (desktopRelaySocket && desktopRelaySocket.readyState === WebSocket.OPEN) {
+    return;
+  }
+
+  if (desktopRelaySocket && desktopRelaySocket.readyState === WebSocket.CONNECTING) {
+    return;
+  }
+
+  const socket = new WebSocket(state.serverUrl);
+  desktopRelaySocket = socket;
+
+  socket.on("open", () => {
+    if (desktopRelaySocket !== socket || state.role === "idle") {
+      return;
+    }
+
+    state.connected = true;
+    state.message = "Connecté au relais Node";
+    sendDesktopRelayMessage({ type: "join", role: state.role === "leader" ? "leader" : "reader", room: state.room });
+    flushDesktopRelayQueue();
+    sendStateToWindows();
+  });
+
+  socket.on("message", () => {
+    if (desktopRelaySocket === socket && state.role !== "idle") {
+      state.connected = true;
+      sendStateToWindows();
+    }
+  });
+
+  socket.on("close", () => {
+    if (desktopRelaySocket !== socket || state.role === "idle") {
+      return;
+    }
+
+    desktopRelaySocket = null;
+    state.connected = false;
+    state.message = "Relais Node deconnecte. Reconnexion...";
+    sendStateToWindows();
+    desktopRelayReconnectTimer = setTimeout(connectDesktopRelay, 1000);
+  });
+
+  socket.on("error", (error) => {
+    if (desktopRelaySocket !== socket || state.role === "idle") {
+      return;
+    }
+
+    state.connected = false;
+    state.message = `Relais Node indisponible: ${error.message}`;
+    sendStateToWindows();
+  });
+}
+
+function closeDesktopRelay() {
+  clearTimeout(desktopRelayReconnectTimer);
+  desktopRelayReconnectTimer = null;
+  desktopRelayQueue = [];
+
+  if (!desktopRelaySocket) {
+    return;
+  }
+
+  const socket = desktopRelaySocket;
+  desktopRelaySocket = null;
+  socket.removeAllListeners();
+  socket.close();
+}
+
+function sendDesktopLeaderAction(message) {
+  if (state.role !== "leader") {
+    return false;
+  }
+
+  const actionMessage = normalizeDesktopLeaderAction(message);
+  if (!actionMessage) {
+    return false;
+  }
+
+  if (sendDesktopRelayMessage(actionMessage)) {
+    return true;
+  }
+
+  desktopRelayQueue.push(actionMessage);
+  connectDesktopRelay();
+  return true;
+}
+
+function sendDesktopRelayMessage(message) {
+  if (!desktopRelaySocket || desktopRelaySocket.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+
+  desktopRelaySocket.send(JSON.stringify(message));
+  return true;
+}
+
+function flushDesktopRelayQueue() {
+  const queue = desktopRelayQueue;
+  desktopRelayQueue = [];
+
+  for (const message of queue) {
+    if (!sendDesktopRelayMessage(message)) {
+      desktopRelayQueue.push(message);
+    }
+  }
+}
+
+function normalizeDesktopLeaderAction(message) {
+  const action = message && message.action === "clear" ? "clear" : message && message.action === "append" ? "append" : "";
+  if (!action) {
+    return null;
+  }
+
+  const sourceId = normalizeSourceId(message.sourceId);
+  const sourceRevision = normalizeSourceRevision(message.sourceRevision);
+  if (!sourceId || !sourceRevision) {
+    return null;
+  }
+
+  const actionMessage = {
+    type: "action",
+    action,
+    room: state.room,
+    sourceId,
+    sourceRevision
+  };
+
+  if (action === "append") {
+    if (!SYMBOLS.includes(message.symbol)) {
+      return null;
+    }
+
+    actionMessage.symbol = message.symbol;
+  }
+
+  return actionMessage;
+}
+
 function stopSession({ notify = true } = {}) {
+  closeDesktopRelay();
   state.role = "idle";
   state.connected = false;
   state.serverUrl = normalizeServerUrl(DEFAULT_SERVER_URL);
@@ -606,6 +806,16 @@ function normalizeRole(value) {
   }
 
   throw new Error("Mode inconnu.");
+}
+
+function normalizeSourceId(value) {
+  const sourceId = String(value || "").trim();
+  return /^[a-z0-9_-]{8,80}$/i.test(sourceId) ? sourceId : "";
+}
+
+function normalizeSourceRevision(value) {
+  const sourceRevision = Number(value);
+  return Number.isFinite(sourceRevision) && sourceRevision > 0 ? sourceRevision : 0;
 }
 
 function normalizeServerUrl(value) {

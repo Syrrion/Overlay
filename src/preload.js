@@ -12,3 +12,14 @@ contextBridge.exposeInMainWorld("overlayApi", {
     return () => ipcRenderer.removeListener("state:update", listener);
   }
 });
+
+contextBridge.exposeInMainWorld("desktopOverlay", {
+  sendLeaderAction: (message) => {
+    if (!message || typeof message !== "object") {
+      return false;
+    }
+
+    ipcRenderer.send("desktop:leader-action", message);
+    return true;
+  }
+});
