@@ -10,6 +10,8 @@ const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
 const HTTP_FALLBACK_POLL_MS = 750;
 const HTTP_FALLBACK_PENDING_POLL_MS = 250;
+const WS_STATE_ACK_TIMEOUT_MS = 900;
+const ACTION_ACK_FALLBACK_MS = 550;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
@@ -60,6 +62,8 @@ let localSourceRevision = 0;
 let pendingActions = [];
 let reconnectTimer = null;
 let socket = null;
+let webSocketConfirmed = false;
+let webSocketStateTimer = null;
 
 document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 
@@ -142,10 +146,11 @@ function connectRelay() {
   }
 
   socket.addEventListener("open", () => {
-    state.connected = true;
-    stopHttpFallback();
-    setStatus("Connecté", "connected");
+    webSocketConfirmed = false;
+    state.connected = false;
+    setStatus("Connexion au salon...", "pending");
     sendSocketMessage({ type: "join", role: mode === "leader" ? "leader" : "reader", room });
+    scheduleWebSocketStateTimeout();
     resetLeaderStateOnce();
     flushPendingActions();
   });
@@ -155,6 +160,8 @@ function connectRelay() {
   });
 
   socket.addEventListener("close", () => {
+    clearWebSocketStateTimeout();
+    webSocketConfirmed = false;
     state.connected = false;
     setStatus("WebSocket deconnecte. Relais HTTP actif...", "pending");
     startHttpFallback();
@@ -163,6 +170,8 @@ function connectRelay() {
 
   socket.addEventListener("error", () => {
     if (!state.connected) {
+      clearWebSocketStateTimeout();
+      webSocketConfirmed = false;
       setStatus("WebSocket indisponible. Relais HTTP actif...", "pending");
       startHttpFallback();
     }
@@ -191,6 +200,7 @@ function handleMessage(rawMessage) {
     return;
   }
 
+  confirmWebSocketState();
   applyStateMessage(message);
 }
 
@@ -345,10 +355,12 @@ function publishLeaderAction(action, extra = {}) {
 
   if (!sentSocket) {
     sendHttpLeaderAction(message);
+  } else {
+    scheduleHttpActionFallback(message);
   }
 
   if (sentSocket) {
-    setStatus("Connecté", "connected");
+    setStatus(webSocketConfirmed ? "Connecté" : "Attente confirmation relais...", webSocketConfirmed ? "connected" : "pending");
     return;
   }
 
@@ -458,6 +470,47 @@ function sendSocketMessage(message) {
   return true;
 }
 
+function scheduleWebSocketStateTimeout() {
+  clearWebSocketStateTimeout();
+  webSocketStateTimer = window.setTimeout(() => {
+    if (!webSocketConfirmed) {
+      setStatus("WebSocket sans reponse. Relais HTTP actif...", "pending");
+      startHttpFallback();
+    }
+  }, WS_STATE_ACK_TIMEOUT_MS);
+}
+
+function clearWebSocketStateTimeout() {
+  clearTimeout(webSocketStateTimer);
+  webSocketStateTimer = null;
+}
+
+function confirmWebSocketState() {
+  webSocketConfirmed = true;
+  state.connected = true;
+  clearWebSocketStateTimeout();
+  stopHttpFallback();
+  setStatus("Connecté", "connected");
+}
+
+function isWebSocketConfirmedOpen() {
+  return webSocketConfirmed && socket && socket.readyState === WebSocket.OPEN;
+}
+
+function scheduleHttpActionFallback(message) {
+  window.setTimeout(() => {
+    if (isActionPending(message)) {
+      sendHttpLeaderAction(message);
+    }
+  }, ACTION_ACK_FALLBACK_MS);
+}
+
+function isActionPending(message) {
+  return pendingActions.some((action) => {
+    return action.sourceId === message.sourceId && normalizeRevision(action.sourceRevision) === normalizeRevision(message.sourceRevision);
+  });
+}
+
 function startHttpFallback() {
   if (fallbackPollTimer || fallbackPollInFlight) {
     return;
@@ -480,7 +533,7 @@ function scheduleHttpFallbackPoll(delay = getHttpFallbackPollDelay()) {
 async function pollHttpState() {
   fallbackPollTimer = null;
 
-  if (state.connected && socket && socket.readyState === WebSocket.OPEN) {
+  if (isWebSocketConfirmedOpen()) {
     return;
   }
 
@@ -503,7 +556,7 @@ async function pollHttpState() {
     setStatus(`Relais indisponible: ${error.message}`, "error");
   } finally {
     fallbackPollInFlight = false;
-    if (!state.connected || !socket || socket.readyState !== WebSocket.OPEN) {
+    if (!isWebSocketConfirmedOpen()) {
       scheduleHttpFallbackPoll();
     }
   }
@@ -618,7 +671,9 @@ function updatePendingSourceRevision() {
 function flushPendingActions() {
   for (const action of pendingActions) {
     sendDesktopLeaderAction(action);
-    if (!sendSocketMessage(action)) {
+    if (sendSocketMessage(action)) {
+      scheduleHttpActionFallback(action);
+    } else {
       sendHttpLeaderAction(action);
     }
   }
