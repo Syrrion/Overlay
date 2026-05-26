@@ -42,7 +42,7 @@ En build local sur macOS, le fichier publie est disponible dans `server/public/d
 
 - `Ura-Helper-macos-arm64.dmg`
 
-Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, publie un asset de release stable `Ura-Helper-macos-arm64.dmg`, et la page web publique pointe vers ce fichier sur GitHub Releases.
+Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, puis commit automatiquement `server/public/downloads/Ura-Helper-macos-arm64.dmg` sur la branche par defaut pour que la page web le serve directement.
 
 Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions, ou automatiquement quand tu pousses un tag `v*`.
 
