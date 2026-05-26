@@ -13,6 +13,7 @@ const DEFAULT_ROOM = "ura-helper";
 const DEFAULT_AUTO_CLEAR_MS = 20_000;
 const STATE_POLL_MS = 1000;
 const PENDING_STATE_POLL_MS = 250;
+const MIN_VISIBLE_EXPIRY_PROGRESS = 0.012;
 
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
@@ -341,13 +342,14 @@ function updateExpiryBar() {
   const remaining = Math.max(0, state.expiresAt - Date.now());
   const progress = Math.min(1, Math.max(0, remaining / Math.max(1, state.autoClearMs)));
 
-  elements.expiryFill.style.transform = `scaleX(${progress})`;
-
-  if (remaining === 0) {
+  if (progress <= MIN_VISIBLE_EXPIRY_PROGRESS) {
     hideExpiryBar();
     clearInterval(expiryTimer);
     expiryTimer = null;
+    return;
   }
+
+  elements.expiryFill.style.transform = `scaleX(${progress})`;
 }
 
 function hideExpiryBar() {

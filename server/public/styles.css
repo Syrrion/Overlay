@@ -190,6 +190,11 @@ h1 {
   background: rgba(255, 255, 255, 0.04);
 }
 
+.meta-pill.client-count {
+  font-size: 14px;
+  font-weight: 800;
+}
+
 .section-title {
   font-size: 18px;
 }
@@ -240,6 +245,7 @@ h1 {
 
 .expiry-track.is-hidden {
   background: transparent;
+  display: none;
   opacity: 0;
   visibility: hidden;
 }
@@ -460,9 +466,9 @@ body.palette-body {
 .window-handle {
   display: grid;
   place-items: center;
-  flex: 0 0 22px;
+  flex: 0 0 26px;
   align-self: stretch;
-  gap: 3px;
+  gap: 4px;
   color: rgba(246, 241, 231, 0.38);
   cursor: move;
   -webkit-app-region: drag;
@@ -472,16 +478,16 @@ body.palette-body {
   display: inline-grid;
   grid-template-columns: auto auto;
   place-items: center;
-  gap: 3px;
-  min-width: 22px;
-  height: 17px;
-  padding: 0 4px;
+  gap: 4px;
+  min-width: 28px;
+  height: 21px;
+  padding: 0 6px;
   border: 1px solid rgba(66, 212, 131, 0.28);
-  border-radius: 5px;
+  border-radius: 6px;
   color: rgba(246, 241, 231, 0.9);
   background: rgba(66, 212, 131, 0.12);
   box-shadow: inset 0 0 0 1px rgba(246, 241, 231, 0.04);
-  font-size: 11px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   line-height: 1;
@@ -490,8 +496,8 @@ body.palette-body {
 
 .compact-client-count::before {
   content: "";
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--green);
   box-shadow: 0 0 6px rgba(66, 212, 131, 0.45);
