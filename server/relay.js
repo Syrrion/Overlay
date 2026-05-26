@@ -2,7 +2,6 @@ const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
 const path = require("node:path");
-const { spawn } = require("node:child_process");
 
 const PORT = Number.parseInt(process.env.PORT || "8787", 10);
 const AUTO_CLEAR_MS = 20_000;
@@ -14,14 +13,8 @@ const UNKNOWN_SYMBOL = "unknown";
 // Bump only when the desktop Electron client must be updated.
 const EXPECTED_DESKTOP_CLIENT_VERSION = 1;
 const DEFAULT_ROOM = "ura-helper";
-const WORKSPACE_ROOT = path.resolve(__dirname, "..");
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
-const DEPLOY_TOKEN = String(process.env.URA_DEPLOY_TOKEN || "").trim();
-const DEPLOY_ALLOWED_BRANCH = String(process.env.URA_DEPLOY_BRANCH || "main").trim() || "main";
-const DEPLOY_REPO_PATH = path.resolve(process.env.URA_DEPLOY_REPO_PATH || WORKSPACE_ROOT);
-const DEPLOY_PASSENGER_APP_PATH = path.resolve(process.env.URA_DEPLOY_PASSENGER_APP_PATH || WORKSPACE_ROOT);
-const DEPLOY_SCRIPT_PATH = path.join(WORKSPACE_ROOT, "scripts", "deploy-o2switch.sh");
 const MIME_TYPES = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -53,7 +46,6 @@ let stateStore = readStateStoreFromDisk();
 let stateWriteDirty = false;
 let stateWriteInFlight = false;
 let stateWriteTimer = null;
-let deployProcess = null;
 const sharedStatePoller = setInterval(syncRoomsFromSharedState, STATE_POLL_MS);
 sharedStatePoller.unref?.();
 
@@ -77,11 +69,6 @@ const server = http.createServer((request, response) => {
       metrics,
       pid: process.pid
     }));
-    return;
-  }
-
-  if (requestUrl.pathname === "/api/deploy") {
-    handleDeployRequest(request, response);
     return;
   }
 
@@ -870,96 +857,4 @@ function getMimeType(filePath) {
 function sendNotFound(response) {
   response.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
   response.end("Not found\n");
-}
-
-function handleDeployRequest(request, response) {
-  if (request.method === "OPTIONS") {
-    response.writeHead(204, createJsonHeaders({
-      "access-control-allow-headers": "authorization, content-type, x-deploy-token",
-      "access-control-allow-methods": "POST, OPTIONS"
-    }));
-    response.end();
-    return;
-  }
-
-  if (request.method !== "POST") {
-    response.writeHead(405, {
-      ...createJsonHeaders(),
-      "allow": "POST, OPTIONS"
-    });
-    response.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
-    return;
-  }
-
-  if (!DEPLOY_TOKEN) {
-    sendJson(response, 503, { ok: false, error: "Deploy endpoint disabled." });
-    return;
-  }
-
-  const bearerToken = String(request.headers.authorization || "").trim();
-  const headerToken = String(request.headers["x-deploy-token"] || "").trim();
-  const providedToken = bearerToken.startsWith("Bearer ") ? bearerToken.slice(7).trim() : headerToken;
-
-  if (providedToken !== DEPLOY_TOKEN) {
-    sendJson(response, 401, { ok: false, error: "Unauthorized." });
-    return;
-  }
-
-  if (deployProcess && !deployProcess.killed) {
-    sendJson(response, 409, { ok: false, error: "Deploy already running." });
-    return;
-  }
-
-  readJsonBody(request, response, (message) => {
-    const requestedBranch = normalizeDeployBranch(message.branch || message.ref || DEPLOY_ALLOWED_BRANCH);
-    if (requestedBranch !== DEPLOY_ALLOWED_BRANCH) {
-      sendJson(response, 400, { ok: false, error: `Only branch ${DEPLOY_ALLOWED_BRANCH} can be deployed.` });
-      return;
-    }
-
-    if (!fs.existsSync(DEPLOY_SCRIPT_PATH)) {
-      sendJson(response, 500, { ok: false, error: "Deploy script not found." });
-      return;
-    }
-
-    deployProcess = spawn("bash", [DEPLOY_SCRIPT_PATH, DEPLOY_REPO_PATH, DEPLOY_PASSENGER_APP_PATH, requestedBranch], {
-      cwd: WORKSPACE_ROOT,
-      env: process.env,
-      stdio: "ignore"
-    });
-
-    deployProcess.on("error", (error) => {
-      console.warn(`Deploy process failed to start: ${error.message}`);
-      deployProcess = null;
-    });
-
-    deployProcess.on("exit", (code, signal) => {
-      if (code !== 0) {
-        console.warn(`Deploy process exited with code ${code ?? "unknown"} signal ${signal ?? "none"}`);
-      }
-      deployProcess = null;
-    });
-
-    deployProcess.unref?.();
-
-    sendJson(response, 202, {
-      ok: true,
-      accepted: true,
-      branch: requestedBranch,
-      deployRepoPath: DEPLOY_REPO_PATH
-    });
-  });
-}
-
-function normalizeDeployBranch(value) {
-  const branch = String(value || "").trim();
-  if (!branch) {
-    return DEPLOY_ALLOWED_BRANCH;
-  }
-
-  if (branch.startsWith("refs/heads/")) {
-    return branch.slice("refs/heads/".length);
-  }
-
-  return branch;
 }

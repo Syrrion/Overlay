@@ -42,44 +42,11 @@ En build local sur macOS, le fichier publie est disponible dans `server/public/d
 
 - `Ura-Helper-macos-arm64.dmg`
 
-Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, puis commit automatiquement `server/public/downloads/Ura-Helper-macos-arm64.dmg` sur la branche par defaut. La page web peut ensuite pointer directement vers GitHub pour ce fichier.
+Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, puis commit automatiquement `server/public/downloads/Ura-Helper-macos-arm64.dmg` sur la branche par defaut pour que la page web le serve directement.
 
 Comme le fichier depasse 100 Mo, le depot doit avoir Git LFS actif pour `server/public/downloads/Ura-Helper-macos-arm64.dmg`.
 
-Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Sur `push` vers `main`, le build macOS n'est lance que si le client lourd a change (`src/`, `package.json`, `package-lock.json`, `scripts/publish-build.js`). Si le push ne touche que la partie web ou seulement la CI, le build macOS est ignore.
-
-## Deploiement automatique o2switch
-
-Le workflow GitHub Actions peut deployer automatiquement apres chaque push sur `main`.
-
-Prerequis cote o2switch:
-
-- depot Git deja clone sur le serveur
-- application Node.js cPanel/Passenger configuree
-- variables d'environnement configurees pour le relais Node.js
-
-Secrets GitHub a definir:
-
-- `O2SWITCH_DEPLOY_URL`: URL HTTPS du webhook de deploiement, par exemple `https://ton-domaine/api/deploy`
-- `O2SWITCH_DEPLOY_TOKEN`: token secret envoye par GitHub au webhook
-
-Variables d'environnement a definir dans l'application Node.js cPanel/o2switch:
-
-- `URA_DEPLOY_TOKEN`: meme valeur que `O2SWITCH_DEPLOY_TOKEN`
-- `URA_DEPLOY_REPO_PATH`: chemin absolu du depot clone sur le serveur
-- `URA_DEPLOY_PASSENGER_APP_PATH`: chemin absolu de l'application Passenger/Node.js, celui qui contient `tmp/restart.txt`
-- `URA_DEPLOY_BRANCH`: optionnel, branche autorisee pour le deploiement. Par defaut `main`
-
-Le deploiement automatique execute ensuite:
-
-- GitHub appelle `POST /api/deploy`
-- le relais verifie le token secret
-- le relais lance `scripts/deploy-o2switch.sh` en local sur le serveur
-- le script execute `git fetch`, `git checkout`, `git pull --ff-only`
-- le script execute `npm ci --omit=dev`
-- le script cree `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
-
-Le webhook de deploiement est desactive tant que `URA_DEPLOY_TOKEN` n'est pas defini sur le serveur. Il n'accepte qu'un `POST` authentifie et ne deploye que la branche autorisee.
+Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions, ou automatiquement quand tu pousses un tag `v*`.
 
 ## Relais sur serveur dedie
 

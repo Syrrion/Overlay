@@ -12,51 +12,7 @@ on:
       - 'v*'
 
 jobs:
-  detect-changes:
-    if: github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    outputs:
-      desktop_changed: ${{ steps.changes.outputs.desktop_changed }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
-
-      - name: Detect desktop client changes
-        id: changes
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "desktop_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
-            echo "desktop_changed=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          before_sha='${{ github.event.before }}'
-          after_sha='${{ github.sha }}'
-
-          if [ -z "$before_sha" ] || [ "$before_sha" = "0000000000000000000000000000000000000000" ]; then
-            before_sha="$(git rev-parse HEAD^)"
-          fi
-
-          changed_files="$(git diff --name-only "$before_sha" "$after_sha")"
-          printf '%s\n' "$changed_files"
-
-          if printf '%s\n' "$changed_files" | grep -Eq '^(src/|package\.json$|package-lock\.json$|scripts/publish-build\.js$)'; then
-            echo "desktop_changed=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "desktop_changed=false" >> "$GITHUB_OUTPUT"
-          fi
-
   build-macos-arm64:
-    if: github.actor != 'github-actions[bot]' && needs.detect-changes.outputs.desktop_changed == 'true'
-    needs: detect-changes
     runs-on: macos-latest
     permissions:
       contents: write
@@ -104,10 +60,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-public-download:
-    if: github.actor != 'github-actions[bot]' && needs.detect-changes.outputs.desktop_changed == 'true'
-    needs:
-      - detect-changes
-      - build-macos-arm64
+    needs: build-macos-arm64
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -146,37 +99,3 @@ jobs:
           fi
           git commit -m "chore: publish macOS DMG [skip ci]"
           git push origin HEAD:${{ github.event.repository.default_branch }}
-
-  deploy-o2switch:
-    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]' && needs.detect-changes.result == 'success' && (needs.publish-public-download.result == 'success' || needs.publish-public-download.result == 'skipped')
-    needs:
-      - detect-changes
-      - publish-public-download
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Validate deployment secrets
-        shell: bash
-        env:
-          O2SWITCH_DEPLOY_URL: ${{ secrets.O2SWITCH_DEPLOY_URL }}
-          O2SWITCH_DEPLOY_TOKEN: ${{ secrets.O2SWITCH_DEPLOY_TOKEN }}
-        run: |
-          for secret_name in O2SWITCH_DEPLOY_URL O2SWITCH_DEPLOY_TOKEN; do
-            if [ -z "${!secret_name}" ]; then
-              echo "::error::Missing GitHub Actions secret: ${secret_name}"
-              exit 1
-            fi
-          done
-
-      - name: Trigger o2switch deploy webhook
-        shell: bash
-        env:
-          O2SWITCH_DEPLOY_URL: ${{ secrets.O2SWITCH_DEPLOY_URL }}
-          O2SWITCH_DEPLOY_TOKEN: ${{ secrets.O2SWITCH_DEPLOY_TOKEN }}
-        run: |
-          curl --fail-with-body --show-error --silent \
-            --request POST \
-            --header "Authorization: Bearer $O2SWITCH_DEPLOY_TOKEN" \
-            --header "Content-Type: application/json" \
-            --data '{"branch":"${{ github.ref_name }}"}' \
-            "$O2SWITCH_DEPLOY_URL"
