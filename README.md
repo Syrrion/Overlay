@@ -46,7 +46,7 @@ Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Wi
 
 Comme le fichier depasse 100 Mo, le depot doit avoir Git LFS actif pour `server/public/downloads/Ura-Helper-macos-arm64.dmg`.
 
-Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Sur `push` vers `main`, le build macOS n'est lance que si le client lourd a change (`src/`, `package.json`, `package-lock.json`, `scripts/publish-build.js` ou le workflow lui-meme). Si le push ne touche que la partie web, le build macOS est ignore.
+Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Sur `push` vers `main`, le build macOS n'est lance que si le client lourd a change (`src/`, `package.json`, `package-lock.json`, `scripts/publish-build.js`). Si le push ne touche que la partie web ou seulement la CI, le build macOS est ignore.
 
 ## Deploiement automatique o2switch
 
@@ -73,7 +73,7 @@ Le deploiement automatique execute ensuite:
 - `npm ci --omit=dev`
 - creation de `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
 
-Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Un echec a `ssh-keyscan` signifie alors en pratique un host, un port ou un acces SSH incorrect.
+Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Le secret `O2SWITCH_SSH_PRIVATE_KEY` peut contenir soit la cle privee complete, soit la cle privee encodee en base64. Si `ssh-keygen` echoue, le secret est invalide ou tronque. Si `ssh-keyscan` echoue, le host, le port ou l'acces SSH est incorrect.
 
 ## Relais sur serveur dedie
 
