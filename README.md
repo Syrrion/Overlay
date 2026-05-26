@@ -30,6 +30,23 @@ npm run build:publish
 
 Le fichier servi au téléchargement web est ensuite disponible dans `server/public/downloads/Ura-Helper-windows-x64-portable.exe`.
 
+## Build macOS
+
+Pour produire les archives macOS (`.dmg` et `.zip`) et les publier dans les fichiers statiques du site:
+
+```powershell
+npm run build:publish:mac
+```
+
+Les fichiers publies sont ensuite disponibles dans `server/public/downloads/` sous les noms suivants:
+
+- `Ura-Helper-macos-arm64.dmg`
+- `Ura-Helper-macos-arm64.zip`
+
+Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest` et publie les artefacts arm64 en sortie de job.
+
+Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions, ou automatiquement quand tu pousses un tag `v*`.
+
 ## Relais sur serveur dedie
 
 Le serveur fourni ecoute par defaut sur le port `8787`.

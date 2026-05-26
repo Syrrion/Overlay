@@ -8,9 +8,11 @@
   "scripts": {
     "start": "electron .",
     "relay": "node server/relay.js",
-    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js && node --check server/public/app.js",
+    "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js && node --check server/public/app.js && node --check scripts/publish-build.js",
     "build": "electron-builder --win portable",
-    "build:publish": "npm run build && node scripts/publish-build.js"
+    "build:mac": "electron-builder --mac dmg zip --arm64",
+    "build:publish": "npm run build && node scripts/publish-build.js --win",
+    "build:publish:mac": "npm run build:mac && node scripts/publish-build.js --mac"
   },
   "build": {
     "appId": "site.syrion.ura-helper",
@@ -33,6 +35,24 @@
         }
       ],
       "artifactName": "${productName}-${version}-${arch}-portable.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
     }
   },
   "devDependencies": {
