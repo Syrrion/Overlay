@@ -464,17 +464,21 @@ body.palette-body {
 }
 
 .window-handle {
+  position: relative;
   display: grid;
   place-items: center;
   flex: 0 0 26px;
-  align-self: stretch;
-  gap: 4px;
+  align-self: center;
+  height: 58px;
   color: rgba(246, 241, 231, 0.38);
   cursor: move;
   -webkit-app-region: drag;
 }
 
 .compact-client-count {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
   display: inline-grid;
   grid-template-columns: auto auto;
   place-items: center;
@@ -482,6 +486,7 @@ body.palette-body {
   min-width: 28px;
   height: 21px;
   padding: 0 6px;
+  transform: translateX(-50%);
   border: 1px solid rgba(66, 212, 131, 0.28);
   border-radius: 6px;
   color: rgba(246, 241, 231, 0.9);
