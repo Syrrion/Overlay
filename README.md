@@ -46,7 +46,7 @@ Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Wi
 
 Comme le fichier depasse 100 Mo, le depot doit avoir Git LFS actif pour `server/public/downloads/Ura-Helper-macos-arm64.dmg`.
 
-Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Il se lance aussi automatiquement a chaque push sur `main`, publie le `.dmg`, puis peut deployer le depot sur o2switch.
+Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Sur `push` vers `main`, le build macOS n'est lance que si le client lourd a change (`src/`, `package.json`, `package-lock.json`, `scripts/publish-build.js` ou le workflow lui-meme). Si le push ne touche que la partie web, le build macOS est ignore.
 
 ## Deploiement automatique o2switch
 
@@ -72,6 +72,8 @@ Le deploiement automatique execute ensuite:
 - `git fetch`, `git checkout`, `git pull --ff-only`
 - `npm ci --omit=dev`
 - creation de `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
+
+Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Un echec a `ssh-keyscan` signifie alors en pratique un host, un port ou un acces SSH incorrect.
 
 ## Relais sur serveur dedie
 
