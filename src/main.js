@@ -612,7 +612,7 @@ async function assertDesktopClientVersion(serverUrl) {
   const payload = await response.json();
   const expectedVersion = normalizeDesktopClientVersion(payload.expectedDesktopClientVersion);
   if (expectedVersion === 0) {
-    throw new Error("Version desktop attendue introuvable sur le serveur. Mets a jour le relais web.");
+    throw new Error("Version obsolète. Télécharge le nouvel exécutable disponible sur le site web.");
   }
 
   if (expectedVersion > 0 && expectedVersion !== DESKTOP_CLIENT_VERSION) {

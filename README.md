@@ -20,6 +20,16 @@ npm install
 npm start
 ```
 
+## Build Windows
+
+Pour produire l'exécutable portable Windows et le publier dans les fichiers statiques du site:
+
+```powershell
+npm run build:publish
+```
+
+Le fichier servi au téléchargement web est ensuite disponible dans `server/public/downloads/Ura-Helper-windows-x64-portable.exe`.
+
 ## Relais sur serveur dedie
 
 Le serveur fourni ecoute par defaut sur le port `8787`.

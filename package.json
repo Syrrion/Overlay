@@ -9,7 +9,8 @@
     "start": "electron .",
     "relay": "node server/relay.js",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js && node --check server/public/app.js",
-    "build": "electron-builder --win portable"
+    "build": "electron-builder --win portable",
+    "build:publish": "npm run build && node scripts/publish-build.js"
   },
   "build": {
     "appId": "site.syrion.ura-helper",

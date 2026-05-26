@@ -11,6 +11,34 @@
   --red: #ff6157;
 }
 
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 0 16px;
+  border: 1px solid rgba(255, 176, 0, 0.34);
+  border-radius: 999px;
+  color: #18140b;
+  background: linear-gradient(145deg, #ffb000, #f3df9b);
+  font-size: 14px;
+  font-weight: 800;
+  text-decoration: none;
+  transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+.download-link:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px rgba(255, 176, 0, 0.24);
+  filter: brightness(1.02);
+}
+
+.download-link:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 3px;
+}
 * {
   box-sizing: border-box;
 }
@@ -556,9 +584,9 @@ body.palette-body {
   left: 18px;
   z-index: 3;
   display: inline-grid;
-  grid-template-columns: auto auto;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
-  gap: 4px;
+  justify-items: center;
   min-width: 28px;
   height: 21px;
   padding: 0 6px;
@@ -572,6 +600,7 @@ body.palette-body {
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   line-height: 1;
+  text-align: center;
   pointer-events: none;
 }
 
