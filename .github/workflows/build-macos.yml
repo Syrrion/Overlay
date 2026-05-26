@@ -13,6 +13,7 @@ jobs:
       contents: write
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
     steps:
       - name: Checkout repository
@@ -33,17 +34,23 @@ jobs:
       - name: Build macOS arm64
         run: npm run build:mac
 
+      - name: Prepare release asset
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          cp dist/Ura\ Helper-*-mac-arm64.dmg release-assets/Ura-Helper-macos-arm64.dmg
+
       - name: Upload workflow artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ura-helper-macos-arm64
-          path: dist/Ura Helper-*-mac-arm64.dmg
+          path: release-assets/Ura-Helper-macos-arm64.dmg
           if-no-files-found: error
 
       - name: Attach artifacts to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Ura Helper-*-mac-arm64.dmg
+          files: release-assets/Ura-Helper-macos-arm64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -38,11 +38,11 @@ Pour produire l'image disque macOS (`.dmg`) et la publier dans les fichiers stat
 npm run build:publish:mac
 ```
 
-Les fichiers publies sont ensuite disponibles dans `server/public/downloads/` sous les noms suivants:
+En build local sur macOS, le fichier publie est disponible dans `server/public/downloads/` sous le nom suivant:
 
 - `Ura-Helper-macos-arm64.dmg`
 
-Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest` et publie les artefacts arm64 en sortie de job.
+Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, publie un asset de release stable `Ura-Helper-macos-arm64.dmg`, et la page web publique pointe vers ce fichier sur GitHub Releases.
 
 Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions, ou automatiquement quand tu pousses un tag `v*`.
 
