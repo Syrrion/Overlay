@@ -18,7 +18,7 @@ const MIN_VISIBLE_EXPIRY_PROGRESS = 0.012;
 const params = new URLSearchParams(window.location.search);
 const view = normalizeView(params.get("view"));
 const mode = view === "palette" ? "leader" : normalizeMode(params.get("mode") || params.get("role"));
-const room = normalizeRoom(params.get("room")) || DEFAULT_ROOM;
+const room = DEFAULT_ROOM;
 const relayBaseUrl = getRelayBaseUrl(params.get("relay"));
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const clientId = normalizeClientId(params.get("client")) || createSourceId();
@@ -103,7 +103,6 @@ function createCompactMarkup(targetView) {
         <div class="sequence-row">
           <span class="window-handle">
             <span class="drag-grip" aria-hidden="true">${dragGripSvg()}</span>
-            <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
           </span>
           <ol class="symbol-sequence overlay" id="sequence" aria-label="Sequence de symboles"></ol>
         </div>
@@ -111,6 +110,7 @@ function createCompactMarkup(targetView) {
           <span class="expiry-fill" id="expiry-fill"></span>
         </div>
       </section>
+      <span class="client-count compact-client-count" id="connected-count" title="Connectes" aria-label="0 connecte">0</span>
     </main>
   `;
 }

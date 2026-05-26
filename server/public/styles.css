@@ -236,8 +236,8 @@ h1 {
 
 .expiry-track {
   overflow: hidden;
-  height: 6px;
-  border-radius: 999px;
+  height: 2px;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.08);
   opacity: 1;
   transition: opacity 120ms ease;
@@ -245,7 +245,6 @@ h1 {
 
 .expiry-track.is-hidden {
   background: transparent;
-  display: none;
   opacity: 0;
   visibility: hidden;
 }
@@ -476,9 +475,10 @@ body.palette-body {
 }
 
 .compact-client-count {
-  position: absolute;
-  left: 50%;
-  bottom: 8px;
+  position: fixed;
+  bottom: 4px;
+  left: 4px;
+  z-index: 3;
   display: inline-grid;
   grid-template-columns: auto auto;
   place-items: center;
@@ -486,7 +486,7 @@ body.palette-body {
   min-width: 28px;
   height: 21px;
   padding: 0 6px;
-  transform: translateX(-50%);
+  transform: none;
   border: 1px solid rgba(66, 212, 131, 0.28);
   border-radius: 6px;
   color: rgba(246, 241, 231, 0.9);
@@ -600,7 +600,8 @@ body.palette-body {
 }
 
 .overlay-body .expiry-track {
-  height: 4px;
+  width: calc(100% - 36px);
+  margin-left: 36px;
 }
 
 .overlay-body svg,

@@ -10,6 +10,7 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const STATE_WRITE_DEBOUNCE_MS = 50;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const UNKNOWN_SYMBOL = "unknown";
+const DEFAULT_ROOM = "ura-helper";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
 const MIME_TYPES = {
@@ -91,7 +92,8 @@ server.listen(PORT, () => {
 
 function handleApiRequest(request, response, requestUrl) {
   const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/(state|events))?$/i.exec(requestUrl.pathname);
-  const roomName = normalizeRoom(match?.[1]);
+  const requestedRoomName = normalizeRoom(match?.[1]);
+  const roomName = requestedRoomName ? DEFAULT_ROOM : "";
   const roomResource = match?.[2] || "";
 
   if (!roomName) {
