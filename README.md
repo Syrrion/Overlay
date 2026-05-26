@@ -67,13 +67,17 @@ Secrets GitHub a definir:
 - `O2SWITCH_REPO_PATH`: chemin absolu du depot clone sur le serveur
 - `O2SWITCH_PASSENGER_APP_PATH`: chemin absolu de l'application Node.js cPanel (celui qui contient `tmp/restart.txt`)
 
+Secret optionnel utile si `ssh-keyscan` ne fonctionne pas depuis GitHub Actions:
+
+- `O2SWITCH_SSH_KNOWN_HOSTS`: sortie de `ssh-keyscan -p PORT -H HOST`
+
 Le deploiement automatique execute ensuite:
 
 - `git fetch`, `git checkout`, `git pull --ff-only`
 - `npm ci --omit=dev`
 - creation de `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
 
-Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Le secret `O2SWITCH_SSH_PRIVATE_KEY` peut contenir soit la cle privee complete, soit la cle privee encodee en base64. Si `ssh-keygen` echoue, le secret est invalide ou tronque. Si `ssh-keyscan` echoue, le host, le port ou l'acces SSH est incorrect.
+Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Le secret `O2SWITCH_SSH_PRIVATE_KEY` peut contenir soit la cle privee complete, soit la cle privee encodee en base64. Si `ssh-keygen` echoue, le secret est invalide ou tronque. Si `ssh-keyscan` echoue depuis GitHub mais fonctionne chez toi, renseigne `O2SWITCH_SSH_KNOWN_HOSTS` avec la sortie de `ssh-keyscan -p PORT -H HOST` pour bypasser cette etape.
 
 ## Relais sur serveur dedie
 

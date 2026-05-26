@@ -181,6 +181,7 @@ jobs:
           O2SWITCH_SSH_HOST: ${{ secrets.O2SWITCH_SSH_HOST }}
           O2SWITCH_SSH_PORT: ${{ secrets.O2SWITCH_SSH_PORT }}
           O2SWITCH_SSH_PRIVATE_KEY: ${{ secrets.O2SWITCH_SSH_PRIVATE_KEY }}
+          O2SWITCH_SSH_KNOWN_HOSTS: ${{ secrets.O2SWITCH_SSH_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh
           key_file=~/.ssh/id_ed25519
@@ -201,21 +202,20 @@ jobs:
             exit 1
           }
 
-          if ! timeout 15 bash -c "</dev/tcp/$O2SWITCH_SSH_HOST/$O2SWITCH_SSH_PORT" 2>/dev/null; then
-            echo "::error::Cannot reach $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT from GitHub Actions. Check O2SWITCH_SSH_HOST, O2SWITCH_SSH_PORT, firewall rules, and whether SSH is exposed publicly."
-            exit 1
-          fi
+          if [ -n "$O2SWITCH_SSH_KNOWN_HOSTS" ]; then
+            printf '%b\n' "$O2SWITCH_SSH_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          else
+            ssh-keyscan_output="$(ssh-keyscan -T 30 -p "$O2SWITCH_SSH_PORT" -H "$O2SWITCH_SSH_HOST" 2>&1)"
+            if [ -z "$ssh-keyscan_output" ]; then
+              echo "::error::ssh-keyscan returned no host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT. If this host is reachable from your machine but not from GitHub runners, add O2SWITCH_SSH_KNOWN_HOSTS as a GitHub secret to bypass ssh-keyscan."
+              exit 1
+            fi
 
-          ssh-keyscan_output="$(ssh-keyscan -T 30 -p "$O2SWITCH_SSH_PORT" -H "$O2SWITCH_SSH_HOST" 2>&1)"
-          if [ -z "$ssh-keyscan_output" ]; then
-            echo "::error::ssh-keyscan returned no host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT."
-            exit 1
-          fi
-
-          if ! printf '%s\n' "$ssh-keyscan_output" | tee -a ~/.ssh/known_hosts | grep -q '^|\|^[^#]'; then
-            printf '%s\n' "$ssh-keyscan_output"
-            echo "::error::Unable to record the SSH host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT."
-            exit 1
+            if ! printf '%s\n' "$ssh-keyscan_output" | tee -a ~/.ssh/known_hosts | grep -q '^|\|^[^#]'; then
+              printf '%s\n' "$ssh-keyscan_output"
+              echo "::error::Unable to record the SSH host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT."
+              exit 1
+            fi
           fi
 
       - name: Deploy to o2switch
