@@ -70,6 +70,7 @@ let localSourceRevision = 0;
 let pendingActions = [];
 let hasRenderedSequence = false;
 let lastRenderedSequence = [];
+let serverTimeOffset = 0;
 
 document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 
@@ -200,6 +201,10 @@ function applyStateMessage(message) {
 
   acknowledgePublish(message);
 
+  if (Number.isFinite(message.serverTime)) {
+    serverTimeOffset = Date.now() - message.serverTime;
+  }
+
   state.sequence = filterSequence(message.sequence);
   state.expiresAt = Number.isFinite(message.expiresAt) ? message.expiresAt : null;
   state.autoClearMs = Number.isFinite(message.autoClearMs) ? message.autoClearMs : DEFAULT_AUTO_CLEAR_MS;
@@ -293,7 +298,7 @@ function handleLeaderSymbol(symbol) {
   }
 
   state.sequence = nextSequence;
-  state.expiresAt = isCompleteSequence(state.sequence) ? Date.now() + DEFAULT_AUTO_CLEAR_MS : null;
+  state.expiresAt = isCompleteSequence(state.sequence) ? Date.now() - serverTimeOffset + DEFAULT_AUTO_CLEAR_MS : null;
   renderSequence();
   renderLeaderControls();
   syncExpiryBar();
@@ -391,7 +396,7 @@ function updateExpiryBar() {
     return;
   }
 
-  const remaining = Math.max(0, state.expiresAt - Date.now());
+  const remaining = Math.max(0, state.expiresAt - (Date.now() - serverTimeOffset));
   const progress = Math.min(1, Math.max(0, remaining / Math.max(1, state.autoClearMs)));
 
   if (progress <= MIN_VISIBLE_EXPIRY_PROGRESS) {

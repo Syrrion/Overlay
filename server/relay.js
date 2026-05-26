@@ -641,7 +641,8 @@ function createStateMessage(room) {
     updatedAt: Number(room.updatedAt || Date.now()),
     autoClearMs: AUTO_CLEAR_MS,
     connectedClients: getConnectedClientCount(room),
-    expectedDesktopClientVersion: EXPECTED_DESKTOP_CLIENT_VERSION
+    expectedDesktopClientVersion: EXPECTED_DESKTOP_CLIENT_VERSION,
+    serverTime: Date.now()
   };
 }
 
