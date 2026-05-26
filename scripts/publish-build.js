@@ -32,11 +32,6 @@ const artifacts = [
     platform: "mac",
     sourceFileName: `${productName}-${version}-mac-arm64.dmg`,
     destinationFileName: "Ura-Helper-macos-arm64.dmg"
-  },
-  {
-    platform: "mac",
-    sourceFileName: `${productName}-${version}-mac-arm64.zip`,
-    destinationFileName: "Ura-Helper-macos-arm64.zip"
   }
 ];
 

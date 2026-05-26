@@ -37,17 +37,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ura-helper-macos-arm64
-          path: |
-            dist/Ura Helper-*-mac-arm64.dmg
-            dist/Ura Helper-*-mac-arm64.zip
+          path: dist/Ura Helper-*-mac-arm64.dmg
           if-no-files-found: error
 
       - name: Attach artifacts to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            dist/Ura Helper-*-mac-arm64.dmg
-            dist/Ura Helper-*-mac-arm64.zip
+          files: dist/Ura Helper-*-mac-arm64.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

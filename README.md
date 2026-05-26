@@ -32,7 +32,7 @@ Le fichier servi au téléchargement web est ensuite disponible dans `server/pub
 
 ## Build macOS
 
-Pour produire les archives macOS (`.dmg` et `.zip`) et les publier dans les fichiers statiques du site:
+Pour produire l'image disque macOS (`.dmg`) et la publier dans les fichiers statiques du site:
 
 ```powershell
 npm run build:publish:mac
@@ -41,7 +41,6 @@ npm run build:publish:mac
 Les fichiers publies sont ensuite disponibles dans `server/public/downloads/` sous les noms suivants:
 
 - `Ura-Helper-macos-arm64.dmg`
-- `Ura-Helper-macos-arm64.zip`
 
 Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest` et publie les artefacts arm64 en sortie de job.
 
