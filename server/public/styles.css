@@ -225,12 +225,12 @@ h1 {
 }
 
 .sequence-slot.is-arriving {
-  animation: sequence-slot-arrive 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sequence-slot-arrive 560ms cubic-bezier(0.16, 0.84, 0.28, 1);
 }
 
 .sequence-slot.is-arriving svg,
 .sequence-slot.is-arriving .unknown-mark {
-  animation: sequence-symbol-arrive 340ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  animation: sequence-symbol-arrive 620ms cubic-bezier(0.16, 0.84, 0.28, 1);
 }
 
 .sequence-slot.is-unknown {
@@ -337,39 +337,61 @@ h1 {
 
 @keyframes sequence-slot-arrive {
   0% {
-    transform: scale(0.9);
-    border-color: rgba(89, 201, 255, 0.58);
-    box-shadow: 0 0 0 rgba(89, 201, 255, 0);
+    transform: translateY(8px) scale(0.72);
+    border-color: rgba(89, 201, 255, 0.88);
+    background: rgba(89, 201, 255, 0.2);
+    box-shadow: 0 0 0 rgba(89, 201, 255, 0), 0 0 0 rgba(255, 176, 0, 0);
   }
 
-  55% {
-    transform: scale(1.04);
+  35% {
+    transform: translateY(-3px) scale(1.1);
+    border-color: rgba(255, 176, 0, 0.92);
+    background: linear-gradient(145deg, rgba(255, 176, 0, 0.32), rgba(89, 201, 255, 0.24));
+    box-shadow: 0 0 20px rgba(89, 201, 255, 0.3), 0 0 30px rgba(255, 176, 0, 0.24);
+  }
+
+  68% {
+    transform: translateY(0) scale(0.97);
     border-color: rgba(255, 176, 0, 0.58);
-    box-shadow: 0 0 18px rgba(89, 201, 255, 0.16);
+    background: linear-gradient(145deg, rgba(255, 176, 0, 0.22), rgba(89, 201, 255, 0.16));
+    box-shadow: 0 0 10px rgba(89, 201, 255, 0.14), 0 0 14px rgba(255, 176, 0, 0.1);
   }
 
   100% {
     transform: scale(1);
     border-color: rgba(255, 176, 0, 0.38);
-    box-shadow: 0 0 0 rgba(89, 201, 255, 0);
+    background: linear-gradient(145deg, rgba(255, 176, 0, 0.18), rgba(89, 201, 255, 0.12));
+    box-shadow: 0 0 0 rgba(89, 201, 255, 0), 0 0 0 rgba(255, 176, 0, 0);
   }
 }
 
 @keyframes sequence-symbol-arrive {
   0% {
-    transform: scale(0.72);
+    transform: translateY(4px) scale(0.4) rotate(-10deg);
     opacity: 0;
+    filter: blur(6px);
   }
 
-  60% {
-    transform: scale(1.08);
+  55% {
+    transform: translateY(0) scale(1.16) rotate(3deg);
     opacity: 1;
+    filter: blur(0);
   }
 
   100% {
     transform: scale(1);
     opacity: 1;
+    filter: blur(0);
   }
+}
+
+.overlay-body .sequence-slot.is-arriving {
+  animation-duration: 680ms;
+}
+
+.overlay-body .sequence-slot.is-arriving svg,
+.overlay-body .sequence-slot.is-arriving .unknown-mark {
+  animation-duration: 720ms;
 }
 
 @media (prefers-reduced-motion: reduce) {

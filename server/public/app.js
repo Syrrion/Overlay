@@ -184,17 +184,25 @@ function renderSequence() {
 
   const previousSequence = lastRenderedSequence;
   const animateNewSymbols = mode === "viewer" && hasRenderedSequence;
+  const animatedSlotIndexes = [];
   elements.sequence.innerHTML = SYMBOLS.map((_symbol, reverseIndex) => {
     const index = SYMBOLS.length - 1 - reverseIndex;
     const selected = state.sequence[index];
     const shouldAnimate = animateNewSymbols && shouldAnimateSequenceSlot(previousSequence[index], selected);
+    if (shouldAnimate) {
+      animatedSlotIndexes.push(reverseIndex);
+    }
 
     return `
-      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"} ${selected === UNKNOWN_SYMBOL ? "is-unknown" : ""} ${shouldAnimate ? "is-arriving" : ""}">
+      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"} ${selected === UNKNOWN_SYMBOL ? "is-unknown" : ""}" ${shouldAnimate ? 'data-animate="1"' : ""}>
         ${selected ? symbolSvg(selected) : ""}
       </li>
     `;
   }).join("");
+
+  if (animatedSlotIndexes.length > 0) {
+    queueSequenceArrivalAnimations();
+  }
 
   lastRenderedSequence = [...state.sequence];
   hasRenderedSequence = true;
@@ -876,4 +884,17 @@ function shouldAnimateSequenceSlot(previousSymbol, nextSymbol) {
   }
 
   return previousSymbol !== nextSymbol;
+}
+
+function queueSequenceArrivalAnimations() {
+  const runAnimation = () => {
+    for (const slot of elements.sequence.querySelectorAll("[data-animate='1']")) {
+      slot.removeAttribute("data-animate");
+      slot.classList.add("is-arriving");
+    }
+  };
+
+  window.requestAnimationFrame(() => {
+    window.requestAnimationFrame(runAnimation);
+  });
 }
