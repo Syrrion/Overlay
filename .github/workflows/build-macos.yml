@@ -6,11 +6,14 @@ env:
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
 jobs:
   build-macos-arm64:
+    if: github.actor != 'github-actions[bot]'
     runs-on: macos-latest
     permissions:
       contents: write
@@ -58,6 +61,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-public-download:
+    if: github.actor != 'github-actions[bot]'
     needs: build-macos-arm64
     runs-on: ubuntu-latest
     permissions:
@@ -97,3 +101,26 @@ jobs:
           fi
           git commit -m "chore: publish macOS DMG [skip ci]"
           git push origin HEAD:${{ github.event.repository.default_branch }}
+
+  deploy-o2switch:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]'
+    needs: publish-public-download
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH key
+        shell: bash
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' '${{ secrets.O2SWITCH_SSH_PRIVATE_KEY }}' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -p '${{ secrets.O2SWITCH_SSH_PORT }}' -H '${{ secrets.O2SWITCH_SSH_HOST }}' >> ~/.ssh/known_hosts
+
+      - name: Deploy to o2switch
+        shell: bash
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -p '${{ secrets.O2SWITCH_SSH_PORT }}' '${{ secrets.O2SWITCH_SSH_USER }}@${{ secrets.O2SWITCH_SSH_HOST }}' \
+            "bash -s -- '${{ secrets.O2SWITCH_REPO_PATH }}' '${{ secrets.O2SWITCH_PASSENGER_APP_PATH }}' '${{ github.ref_name }}'" < scripts/deploy-o2switch.sh

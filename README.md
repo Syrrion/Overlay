@@ -42,11 +42,36 @@ En build local sur macOS, le fichier publie est disponible dans `server/public/d
 
 - `Ura-Helper-macos-arm64.dmg`
 
-Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, puis commit automatiquement `server/public/downloads/Ura-Helper-macos-arm64.dmg` sur la branche par defaut pour que la page web le serve directement.
+Attention: `electron-builder` ne peut pas produire les artefacts macOS depuis Windows. Si tu n'as pas de Mac, utilise le workflow GitHub Actions du depot. Il lance `npm run build:mac` sur `macos-latest`, puis commit automatiquement `server/public/downloads/Ura-Helper-macos-arm64.dmg` sur la branche par defaut. La page web peut ensuite pointer directement vers GitHub pour ce fichier.
 
 Comme le fichier depasse 100 Mo, le depot doit avoir Git LFS actif pour `server/public/downloads/Ura-Helper-macos-arm64.dmg`.
 
-Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions, ou automatiquement quand tu pousses un tag `v*`.
+Le workflow est defini dans `.github/workflows/build-macos.yml` et peut etre lance manuellement depuis l'onglet Actions. Il se lance aussi automatiquement a chaque push sur `main`, publie le `.dmg`, puis peut deployer le depot sur o2switch.
+
+## Deploiement automatique o2switch
+
+Le workflow GitHub Actions peut deployer automatiquement apres chaque push sur `main`.
+
+Prerequis cote o2switch:
+
+- acces SSH actif
+- depot Git deja clone sur le serveur
+- application Node.js cPanel/Passenger configuree
+
+Secrets GitHub a definir:
+
+- `O2SWITCH_SSH_HOST`: host SSH o2switch
+- `O2SWITCH_SSH_PORT`: port SSH o2switch
+- `O2SWITCH_SSH_USER`: utilisateur SSH
+- `O2SWITCH_SSH_PRIVATE_KEY`: cle privee autorisee sur le serveur
+- `O2SWITCH_REPO_PATH`: chemin absolu du depot clone sur le serveur
+- `O2SWITCH_PASSENGER_APP_PATH`: chemin absolu de l'application Node.js cPanel (celui qui contient `tmp/restart.txt`)
+
+Le deploiement automatique execute ensuite:
+
+- `git fetch`, `git checkout`, `git pull --ff-only`
+- `npm ci --omit=dev`
+- creation de `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
 
 ## Relais sur serveur dedie
 
