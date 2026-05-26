@@ -234,9 +234,13 @@ h1 {
   height: 6px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
+  opacity: 1;
+  transition: opacity 120ms ease;
 }
 
 .expiry-track.is-hidden {
+  background: transparent;
+  opacity: 0;
   visibility: hidden;
 }
 
@@ -284,9 +288,9 @@ h1 {
 
 .symbol-button.is-selected {
   border-color: rgba(246, 241, 231, 0.14);
-  color: rgba(246, 241, 231, 0.28);
-  background: rgba(255, 255, 255, 0.025);
-  opacity: 0.46;
+  color: rgba(246, 241, 231, 0.2);
+  background: rgba(255, 255, 255, 0.018);
+  opacity: 0.34;
 }
 
 .symbol-button.is-selected:hover:not(:disabled) {
@@ -300,8 +304,15 @@ h1 {
 
 .symbol-button.is-unknown.is-selected {
   border-color: rgba(246, 241, 231, 0.14);
-  color: rgba(246, 241, 231, 0.28);
-  background: rgba(255, 255, 255, 0.025);
+  color: rgba(246, 241, 231, 0.2);
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.symbol-button.is-unknown:disabled {
+  border-color: rgba(246, 241, 231, 0.12);
+  color: rgba(246, 241, 231, 0.22);
+  background: rgba(255, 255, 255, 0.02);
+  opacity: 0.38;
 }
 
 .unknown-mark {
@@ -449,28 +460,41 @@ body.palette-body {
 .window-handle {
   display: grid;
   place-items: center;
-  flex: 0 0 18px;
+  flex: 0 0 22px;
   align-self: stretch;
-  gap: 2px;
+  gap: 3px;
   color: rgba(246, 241, 231, 0.38);
   cursor: move;
   -webkit-app-region: drag;
 }
 
 .compact-client-count {
-  display: grid;
+  display: inline-grid;
+  grid-template-columns: auto auto;
   place-items: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border: 1px solid rgba(246, 241, 231, 0.14);
-  border-radius: 999px;
-  color: rgba(246, 241, 231, 0.72);
-  background: rgba(0, 0, 0, 0.34);
-  font-size: 10px;
-  font-weight: 700;
+  gap: 3px;
+  min-width: 22px;
+  height: 17px;
+  padding: 0 4px;
+  border: 1px solid rgba(66, 212, 131, 0.28);
+  border-radius: 5px;
+  color: rgba(246, 241, 231, 0.9);
+  background: rgba(66, 212, 131, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(246, 241, 231, 0.04);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
   line-height: 1;
   pointer-events: none;
+}
+
+.compact-client-count::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(66, 212, 131, 0.45);
 }
 
 .leader-palette {
@@ -485,7 +509,7 @@ body.palette-body {
 
 .drag-grip svg {
   width: 14px;
-  height: 34px;
+  height: 32px;
   stroke-width: 5;
 }
 
@@ -538,9 +562,9 @@ body.palette-body {
 
 .palette-body .symbol-button.is-selected,
 .palette-body .symbol-button:disabled {
-  color: rgba(246, 241, 231, 0.24);
-  background: rgba(255, 255, 255, 0.02);
-  opacity: 0.42;
+  color: rgba(246, 241, 231, 0.18);
+  background: rgba(255, 255, 255, 0.014);
+  opacity: 0.3;
 }
 
 .overlay-body .sequence-slot.is-unknown,
@@ -552,9 +576,16 @@ body.palette-body {
 
 .palette-body .symbol-button.is-unknown.is-selected {
   border-color: rgba(246, 241, 231, 0.12);
-  color: rgba(246, 241, 231, 0.24);
-  background: rgba(255, 255, 255, 0.02);
-  opacity: 0.42;
+  color: rgba(246, 241, 231, 0.18);
+  background: rgba(255, 255, 255, 0.014);
+  opacity: 0.3;
+}
+
+.palette-body .symbol-button.is-unknown:disabled {
+  border-color: rgba(246, 241, 231, 0.1);
+  color: rgba(246, 241, 231, 0.18);
+  background: rgba(255, 255, 255, 0.014);
+  opacity: 0.3;
 }
 
 .overlay-body .expiry-track {

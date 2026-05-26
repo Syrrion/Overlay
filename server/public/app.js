@@ -200,11 +200,13 @@ function renderLeaderControls() {
     return;
   }
 
+  const sequenceDetermined = isCompleteSequence(state.sequence);
   elements.symbolActions.innerHTML = SYMBOL_ACTIONS.map((symbol) => {
     const selected = state.sequence.includes(symbol);
+    const disabled = symbol === UNKNOWN_SYMBOL && sequenceDetermined;
 
     return `
-      <button class="symbol-button ${selected ? "is-selected" : ""} ${symbol === UNKNOWN_SYMBOL ? "is-unknown" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}">
+      <button class="symbol-button ${selected ? "is-selected" : ""} ${symbol === UNKNOWN_SYMBOL ? "is-unknown" : ""}" data-symbol="${symbol}" type="button" aria-label="${SYMBOL_NAMES[symbol]}" ${disabled ? "disabled" : ""}>
         ${symbolSvg(symbol)}
       </button>
     `;
@@ -313,8 +315,7 @@ function syncExpiryBar() {
   }
 
   if (!state.expiresAt) {
-    elements.expiryTrack.classList.add("is-hidden");
-    elements.expiryFill.style.transform = "scaleX(0)";
+    hideExpiryBar();
     return;
   }
 
@@ -331,8 +332,7 @@ function updateExpiryBar() {
   }
 
   if (!state.expiresAt) {
-    elements.expiryTrack.classList.add("is-hidden");
-    elements.expiryFill.style.transform = "scaleX(0)";
+    hideExpiryBar();
     clearInterval(expiryTimer);
     expiryTimer = null;
     return;
@@ -344,9 +344,15 @@ function updateExpiryBar() {
   elements.expiryFill.style.transform = `scaleX(${progress})`;
 
   if (remaining === 0) {
+    hideExpiryBar();
     clearInterval(expiryTimer);
     expiryTimer = null;
   }
+}
+
+function hideExpiryBar() {
+  elements.expiryTrack.classList.add("is-hidden");
+  elements.expiryFill.style.transform = "scaleX(0)";
 }
 
 function setStatus(message, variant) {
