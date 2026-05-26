@@ -67,6 +67,8 @@ let fallbackPollTimer = null;
 let httpActionKeysInFlight = new Set();
 let localSourceRevision = 0;
 let pendingActions = [];
+let hasRenderedSequence = false;
+let lastRenderedSequence = [];
 
 document.title = `Ura Helper Web - ${mode === "leader" ? "Leader" : "Viewer"}`;
 
@@ -180,16 +182,22 @@ function renderSequence() {
     return;
   }
 
+  const previousSequence = lastRenderedSequence;
+  const animateNewSymbols = mode === "viewer" && hasRenderedSequence;
   elements.sequence.innerHTML = SYMBOLS.map((_symbol, reverseIndex) => {
     const index = SYMBOLS.length - 1 - reverseIndex;
     const selected = state.sequence[index];
+    const shouldAnimate = animateNewSymbols && shouldAnimateSequenceSlot(previousSequence[index], selected);
 
     return `
-      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"} ${selected === UNKNOWN_SYMBOL ? "is-unknown" : ""}">
+      <li class="sequence-slot ${selected ? "is-filled" : "is-empty"} ${selected === UNKNOWN_SYMBOL ? "is-unknown" : ""} ${shouldAnimate ? "is-arriving" : ""}">
         ${selected ? symbolSvg(selected) : ""}
       </li>
     `;
   }).join("");
+
+  lastRenderedSequence = [...state.sequence];
+  hasRenderedSequence = true;
 
   const sequencePanel = document.querySelector(".sequence-panel");
   if (sequencePanel) {
@@ -860,4 +868,12 @@ function getFallbackStatusMessage() {
   return eventSourceConnected
     ? "Relais temps reel actif"
     : "Relais HTTP de secours actif";
+}
+
+function shouldAnimateSequenceSlot(previousSymbol, nextSymbol) {
+  if (!nextSymbol) {
+    return false;
+  }
+
+  return previousSymbol !== nextSymbol;
 }
