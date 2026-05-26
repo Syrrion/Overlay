@@ -23,6 +23,7 @@ const relayBaseUrl = getRelayBaseUrl(params.get("relay"));
 const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const clientId = normalizeClientId(params.get("client")) || createSourceId();
 const sourceId = clientId;
+let leavePresenceSent = false;
 
 enforceCanonicalRoomUrl();
 
@@ -78,6 +79,7 @@ renderLeaderControls();
 renderConnectedCount();
 syncExpiryBar();
 setStatus("Connexion au relais...", "pending");
+registerPresenceLifecycleHandlers();
 connectRelay();
 
 if (shouldResetOnJoin) {
@@ -148,6 +150,38 @@ function connectRelay() {
   startRealtimeRelay();
   resetLeaderStateOnce();
   flushPendingActions();
+}
+
+function registerPresenceLifecycleHandlers() {
+  window.addEventListener("pagehide", notifyPresenceLeave, { capture: true });
+  window.addEventListener("beforeunload", notifyPresenceLeave, { capture: true });
+}
+
+function notifyPresenceLeave() {
+  if (leavePresenceSent) {
+    return;
+  }
+
+  leavePresenceSent = true;
+  closeEventSourceRelay();
+
+  const payload = JSON.stringify({ action: "leave", clientId });
+  const presenceUrl = getRoomPresenceUrl();
+
+  if (navigator.sendBeacon) {
+    const body = new Blob([payload], { type: "application/json" });
+    if (navigator.sendBeacon(presenceUrl, body)) {
+      return;
+    }
+  }
+
+  fetch(presenceUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: payload,
+    keepalive: true,
+    cache: "no-store"
+  }).catch(() => {});
 }
 
 function applyStateMessage(message) {
@@ -868,6 +902,14 @@ function getRoomEventsUrl() {
   url.pathname = `/api/rooms/${encodeURIComponent(room)}/events`;
   url.search = "";
   url.searchParams.set("client", clientId);
+  url.hash = "";
+  return url.toString();
+}
+
+function getRoomPresenceUrl() {
+  const url = new URL(getRelayHttpBaseUrl(relayBaseUrl));
+  url.pathname = `/api/rooms/${encodeURIComponent(room)}/presence`;
+  url.search = "";
   url.hash = "";
   return url.toString();
 }

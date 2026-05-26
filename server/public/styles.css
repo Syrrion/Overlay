@@ -575,15 +575,6 @@ body.palette-body {
   pointer-events: none;
 }
 
-.compact-client-count::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--green);
-  box-shadow: 0 0 6px rgba(66, 212, 131, 0.45);
-}
-
 .leader-palette {
   padding: 10px;
 }

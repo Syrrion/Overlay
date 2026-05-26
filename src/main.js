@@ -4,6 +4,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const DEFAULT_SERVER_URL = "https://ura.syrion.site";
+// Bump only when the desktop Electron client itself must be updated.
+const DESKTOP_CLIENT_VERSION = 1;
 const DEFAULT_ROOM = "ura-helper";
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
@@ -77,11 +79,13 @@ app.on("window-all-closed", () => {
 
 ipcMain.handle("status:get", () => serializeState());
 
-ipcMain.handle("session:start", (_event, options = {}) => {
+ipcMain.handle("session:start", async (_event, options = {}) => {
   try {
     const role = normalizeRole(options.role);
     const serverUrl = normalizeServerUrl(DEFAULT_SERVER_URL);
     const room = DEFAULT_ROOM;
+
+    await assertDesktopClientVersion(serverUrl);
 
     stopSession({ notify: false });
 
@@ -554,6 +558,7 @@ function buildWebAppUrl(view, mode, options = {}) {
   url.searchParams.set("room", state.room);
   url.searchParams.set("relay", state.serverUrl);
   url.searchParams.set("client", desktopClientId);
+  url.searchParams.set("desktopClientVersion", String(DESKTOP_CLIENT_VERSION));
 
   if (options.reset) {
     url.searchParams.set("reset", "1");
@@ -585,6 +590,35 @@ function getRelayHttpUrl(value) {
   url.search = "";
   url.hash = "";
   return url.toString().replace(/\/$/, "");
+}
+
+async function assertDesktopClientVersion(serverUrl) {
+  const healthUrl = new URL(`${getRelayHttpUrl(serverUrl)}/health`);
+  let response = null;
+
+  try {
+    response = await fetch(healthUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000)
+    });
+  } catch (_error) {
+    return;
+  }
+
+  if (!response.ok) {
+    return;
+  }
+
+  const payload = await response.json();
+  const expectedVersion = normalizeDesktopClientVersion(payload.expectedDesktopClientVersion);
+  if (expectedVersion > DESKTOP_CLIENT_VERSION) {
+    throw new Error(`Client desktop obsolete. Version attendue: ${expectedVersion}, version installee: ${DESKTOP_CLIENT_VERSION}.`);
+  }
+}
+
+function normalizeDesktopClientVersion(value) {
+  const version = Number.parseInt(String(value ?? "0"), 10);
+  return Number.isFinite(version) && version > 0 ? version : 0;
 }
 
 function sendStateToWindows() {

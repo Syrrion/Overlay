@@ -10,6 +10,8 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const STATE_WRITE_DEBOUNCE_MS = 50;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const UNKNOWN_SYMBOL = "unknown";
+// Bump only when the desktop Electron client must be updated.
+const EXPECTED_DESKTOP_CLIENT_VERSION = 1;
 const DEFAULT_ROOM = "ura-helper";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");
@@ -57,6 +59,7 @@ const server = http.createServer((request, response) => {
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       ok: true,
+      expectedDesktopClientVersion: EXPECTED_DESKTOP_CLIENT_VERSION,
       rooms: knownRooms.size,
       clientsByRoom: getClientsByRoom(),
       localRooms: rooms.size,
@@ -91,7 +94,7 @@ server.listen(PORT, () => {
 });
 
 function handleApiRequest(request, response, requestUrl) {
-  const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/(state|events))?$/i.exec(requestUrl.pathname);
+  const match = /^\/api\/rooms\/([a-z0-9_-]{3,48})(?:\/(state|events|presence))?$/i.exec(requestUrl.pathname);
   const requestedRoomName = normalizeRoom(match?.[1]);
   const roomName = requestedRoomName ? DEFAULT_ROOM : "";
   const roomResource = match?.[2] || "";
@@ -121,6 +124,23 @@ function handleApiRequest(request, response, requestUrl) {
       "allow": "GET, OPTIONS"
     });
     response.end(JSON.stringify({ ok: false, error: "Method not allowed" }));
+    return;
+  }
+
+  if (roomResource === "presence" && request.method === "POST") {
+    readJsonBody(request, response, (message) => {
+      const room = getRoom(roomName);
+      const clientId = normalizeClientId(message.clientId || requestUrl.searchParams.get("client"));
+      const action = String(message.action || requestUrl.searchParams.get("action") || "").trim().toLowerCase();
+
+      if (!clientId || action !== "leave") {
+        sendJson(response, 400, { ok: false, error: "Presence invalide." });
+        return;
+      }
+
+      const removed = removeClientEventStreams(roomName, room, clientId);
+      sendJson(response, 200, { ok: true, removed });
+    });
     return;
   }
 
@@ -550,6 +570,31 @@ function maybeDeleteRoom(roomName, room) {
   }
 }
 
+function removeClientEventStreams(roomName, room, clientId) {
+  let removed = 0;
+
+  for (const eventStream of [...room.eventStreams]) {
+    if (normalizeClientId(eventStream.uraClientId) !== clientId) {
+      continue;
+    }
+
+    room.eventStreams.delete(eventStream);
+    if (!eventStream.writableEnded) {
+      eventStream.end();
+    }
+    removed += 1;
+  }
+
+  if (removed > 0) {
+    if (room.eventStreams.size > 0) {
+      broadcastRoomState(room);
+    }
+    maybeDeleteRoom(roomName, room);
+  }
+
+  return removed;
+}
+
 function recordActionMetric(roomName, transport) {
   metrics.lastActionAt = Date.now();
   metrics.lastActionRoom = roomName;
@@ -595,7 +640,8 @@ function createStateMessage(room) {
     sourceRevision: normalizeRevision(room.sourceRevision),
     updatedAt: Number(room.updatedAt || Date.now()),
     autoClearMs: AUTO_CLEAR_MS,
-    connectedClients: getConnectedClientCount(room)
+    connectedClients: getConnectedClientCount(room),
+    expectedDesktopClientVersion: EXPECTED_DESKTOP_CLIENT_VERSION
   };
 }
 
