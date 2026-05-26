@@ -24,6 +24,8 @@ const shouldResetOnJoin = mode === "leader" && params.get("reset") === "1";
 const clientId = normalizeClientId(params.get("client")) || createSourceId();
 const sourceId = clientId;
 
+enforceCanonicalRoomUrl();
+
 if (view !== "page") {
   document.body.innerHTML = createCompactMarkup(view);
 }
@@ -743,6 +745,16 @@ function switchMode(nextMode) {
   }
 
   window.location.assign(nextUrl.toString());
+}
+
+function enforceCanonicalRoomUrl() {
+  const nextUrl = new URL(window.location.href);
+  if (nextUrl.searchParams.get("room") === DEFAULT_ROOM) {
+    return;
+  }
+
+  nextUrl.searchParams.set("room", DEFAULT_ROOM);
+  window.history.replaceState({}, "", nextUrl.toString());
 }
 
 function getRelayBaseUrl(overrideValue) {
