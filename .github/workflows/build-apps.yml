@@ -1,0 +1,107 @@
+name: Build Apps
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*'
+
+jobs:
+  build-windows-x64:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate sources
+        run: npm run check
+
+      - name: Extract Client Version
+        id: extract_version
+        shell: bash
+        run: |
+          CLIENT_VERSION=$(node -e "const fs=require('fs'); const match=fs.readFileSync('src/main.js', 'utf8').match(/DESKTOP_CLIENT_VERSION\s*=\s*(\d+)/); console.log(match[1])")
+          echo "CLIENT_VERSION=$CLIENT_VERSION" >> $GITHUB_ENV
+
+      - name: Build Windows x64
+        run: npm run build
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ura-helper-windows-x64
+          path: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-portable.exe
+          if-no-files-found: error
+
+      - name: Attach artifacts to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-portable.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build-macos-arm64:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate sources
+        run: npm run check
+
+      - name: Extract Client Version
+        id: extract_version
+        shell: bash
+        run: |
+          CLIENT_VERSION=$(node -e "const fs=require('fs'); const match=fs.readFileSync('src/main.js', 'utf8').match(/DESKTOP_CLIENT_VERSION\s*=\s*(\d+)/); console.log(match[1])")
+          echo "CLIENT_VERSION=$CLIENT_VERSION" >> $GITHUB_ENV
+
+      - name: Build macOS arm64
+        run: npm run build:mac
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ura-helper-macos-arm64
+          path: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-macos-arm64.dmg
+          if-no-files-found: error
+
+      - name: Attach artifacts to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-macos-arm64.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

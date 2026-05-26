@@ -841,6 +841,20 @@ function serveStaticAsset(pathname, response, headOnly) {
     return;
   }
 
+  if (filePath.endsWith("index.html")) {
+    fs.readFile(filePath, "utf8", (err, data) => {
+      if (err) {
+        if (!response.headersSent) {
+          response.writeHead(500, { "content-type": "text/plain; charset=utf-8" });
+        }
+        response.end("Server error\n");
+        return;
+      }
+      response.end(data.replace(/__VERSION__/g, EXPECTED_DESKTOP_CLIENT_VERSION.toString()));
+    });
+    return;
+  }
+
   const stream = fs.createReadStream(filePath);
   stream.on("error", () => {
     if (!response.headersSent) {

@@ -5,7 +5,7 @@ const path = require("node:path");
 
 const DEFAULT_SERVER_URL = "https://ura.syrion.site";
 // Bump only when the desktop Electron client itself must be updated.
-const DESKTOP_CLIENT_VERSION = 1;
+const DESKTOP_CLIENT_VERSION = 2;
 const DEFAULT_ROOM = "ura-helper";
 const BASE_WINDOW_SIZES = {
   sequence: { width: 410, height: 96 },
@@ -641,7 +641,8 @@ function serializeState() {
     message: state.message,
     movementLocked: state.movementLocked,
     overlayOpacity: state.overlayOpacity,
-    windowScales: { ...state.windowScales }
+    windowScales: { ...state.windowScales },
+    clientVersion: DESKTOP_CLIENT_VERSION
   };
 }
 

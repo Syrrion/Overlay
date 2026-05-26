@@ -52,6 +52,7 @@ function renderControl() {
         <div class="product-mark">UH</div>
         <div>
           <h1>Ura Helper</h1>
+          <p class="version-label" style="font-size: 0.8rem; color: #aaa; margin: 0; padding-top: 4px;">Version du client: v${currentState.clientVersion}</p>
         </div>
       </header>
 
