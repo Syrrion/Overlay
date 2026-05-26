@@ -155,77 +155,28 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
       - name: Validate deployment secrets
         shell: bash
         env:
-          O2SWITCH_SSH_HOST: ${{ secrets.O2SWITCH_SSH_HOST }}
-          O2SWITCH_SSH_PORT: ${{ secrets.O2SWITCH_SSH_PORT }}
-          O2SWITCH_SSH_USER: ${{ secrets.O2SWITCH_SSH_USER }}
-          O2SWITCH_SSH_PRIVATE_KEY: ${{ secrets.O2SWITCH_SSH_PRIVATE_KEY }}
-          O2SWITCH_REPO_PATH: ${{ secrets.O2SWITCH_REPO_PATH }}
-          O2SWITCH_PASSENGER_APP_PATH: ${{ secrets.O2SWITCH_PASSENGER_APP_PATH }}
+          O2SWITCH_DEPLOY_URL: ${{ secrets.O2SWITCH_DEPLOY_URL }}
+          O2SWITCH_DEPLOY_TOKEN: ${{ secrets.O2SWITCH_DEPLOY_TOKEN }}
         run: |
-          for secret_name in O2SWITCH_SSH_HOST O2SWITCH_SSH_PORT O2SWITCH_SSH_USER O2SWITCH_SSH_PRIVATE_KEY O2SWITCH_REPO_PATH O2SWITCH_PASSENGER_APP_PATH; do
+          for secret_name in O2SWITCH_DEPLOY_URL O2SWITCH_DEPLOY_TOKEN; do
             if [ -z "${!secret_name}" ]; then
               echo "::error::Missing GitHub Actions secret: ${secret_name}"
               exit 1
             fi
           done
 
-      - name: Configure SSH key
+      - name: Trigger o2switch deploy webhook
         shell: bash
         env:
-          O2SWITCH_SSH_HOST: ${{ secrets.O2SWITCH_SSH_HOST }}
-          O2SWITCH_SSH_PORT: ${{ secrets.O2SWITCH_SSH_PORT }}
-          O2SWITCH_SSH_PRIVATE_KEY: ${{ secrets.O2SWITCH_SSH_PRIVATE_KEY }}
-          O2SWITCH_SSH_KNOWN_HOSTS: ${{ secrets.O2SWITCH_SSH_KNOWN_HOSTS }}
+          O2SWITCH_DEPLOY_URL: ${{ secrets.O2SWITCH_DEPLOY_URL }}
+          O2SWITCH_DEPLOY_TOKEN: ${{ secrets.O2SWITCH_DEPLOY_TOKEN }}
         run: |
-          mkdir -p ~/.ssh
-          key_file=~/.ssh/id_ed25519
-          key_material="$O2SWITCH_SSH_PRIVATE_KEY"
-
-          if printf '%s' "$key_material" | grep -q 'BEGIN .*PRIVATE KEY'; then
-            printf '%b' "$key_material" | tr -d '\r' > "$key_file"
-          else
-            printf '%s' "$key_material" | tr -d '\r' | base64 -d > "$key_file" || {
-              echo '::error::O2SWITCH_SSH_PRIVATE_KEY must be either the full private key text or a base64-encoded private key.'
-              exit 1
-            }
-          fi
-
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null || {
-            echo '::error::Invalid SSH private key. Store the full private key including BEGIN/END lines, or a base64-encoded private key.'
-            exit 1
-          }
-
-          if [ -n "$O2SWITCH_SSH_KNOWN_HOSTS" ]; then
-            printf '%b\n' "$O2SWITCH_SSH_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
-          else
-            ssh-keyscan_output="$(ssh-keyscan -T 30 -p "$O2SWITCH_SSH_PORT" -H "$O2SWITCH_SSH_HOST" 2>&1)"
-            if [ -z "$ssh-keyscan_output" ]; then
-              echo "::error::ssh-keyscan returned no host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT. If this host is reachable from your machine but not from GitHub runners, add O2SWITCH_SSH_KNOWN_HOSTS as a GitHub secret to bypass ssh-keyscan."
-              exit 1
-            fi
-
-            if ! printf '%s\n' "$ssh-keyscan_output" | tee -a ~/.ssh/known_hosts | grep -q '^|\|^[^#]'; then
-              printf '%s\n' "$ssh-keyscan_output"
-              echo "::error::Unable to record the SSH host key for $O2SWITCH_SSH_HOST:$O2SWITCH_SSH_PORT."
-              exit 1
-            fi
-          fi
-
-      - name: Deploy to o2switch
-        shell: bash
-        env:
-          O2SWITCH_SSH_HOST: ${{ secrets.O2SWITCH_SSH_HOST }}
-          O2SWITCH_SSH_PORT: ${{ secrets.O2SWITCH_SSH_PORT }}
-          O2SWITCH_SSH_USER: ${{ secrets.O2SWITCH_SSH_USER }}
-          O2SWITCH_REPO_PATH: ${{ secrets.O2SWITCH_REPO_PATH }}
-          O2SWITCH_PASSENGER_APP_PATH: ${{ secrets.O2SWITCH_PASSENGER_APP_PATH }}
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -p "$O2SWITCH_SSH_PORT" "$O2SWITCH_SSH_USER@$O2SWITCH_SSH_HOST" \
-            "bash -s -- '$O2SWITCH_REPO_PATH' '$O2SWITCH_PASSENGER_APP_PATH' '${{ github.ref_name }}'" < scripts/deploy-o2switch.sh
+          curl --fail-with-body --show-error --silent \
+            --request POST \
+            --header "Authorization: Bearer $O2SWITCH_DEPLOY_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data '{"branch":"${{ github.ref_name }}"}' \
+            "$O2SWITCH_DEPLOY_URL"

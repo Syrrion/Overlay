@@ -54,30 +54,32 @@ Le workflow GitHub Actions peut deployer automatiquement apres chaque push sur `
 
 Prerequis cote o2switch:
 
-- acces SSH actif
 - depot Git deja clone sur le serveur
 - application Node.js cPanel/Passenger configuree
+- variables d'environnement configurees pour le relais Node.js
 
 Secrets GitHub a definir:
 
-- `O2SWITCH_SSH_HOST`: host SSH o2switch
-- `O2SWITCH_SSH_PORT`: port SSH o2switch
-- `O2SWITCH_SSH_USER`: utilisateur SSH
-- `O2SWITCH_SSH_PRIVATE_KEY`: cle privee autorisee sur le serveur
-- `O2SWITCH_REPO_PATH`: chemin absolu du depot clone sur le serveur
-- `O2SWITCH_PASSENGER_APP_PATH`: chemin absolu de l'application Node.js cPanel (celui qui contient `tmp/restart.txt`)
+- `O2SWITCH_DEPLOY_URL`: URL HTTPS du webhook de deploiement, par exemple `https://ton-domaine/api/deploy`
+- `O2SWITCH_DEPLOY_TOKEN`: token secret envoye par GitHub au webhook
 
-Secret optionnel utile si `ssh-keyscan` ne fonctionne pas depuis GitHub Actions:
+Variables d'environnement a definir dans l'application Node.js cPanel/o2switch:
 
-- `O2SWITCH_SSH_KNOWN_HOSTS`: sortie de `ssh-keyscan -p PORT -H HOST`
+- `URA_DEPLOY_TOKEN`: meme valeur que `O2SWITCH_DEPLOY_TOKEN`
+- `URA_DEPLOY_REPO_PATH`: chemin absolu du depot clone sur le serveur
+- `URA_DEPLOY_PASSENGER_APP_PATH`: chemin absolu de l'application Passenger/Node.js, celui qui contient `tmp/restart.txt`
+- `URA_DEPLOY_BRANCH`: optionnel, branche autorisee pour le deploiement. Par defaut `main`
 
 Le deploiement automatique execute ensuite:
 
-- `git fetch`, `git checkout`, `git pull --ff-only`
-- `npm ci --omit=dev`
-- creation de `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
+- GitHub appelle `POST /api/deploy`
+- le relais verifie le token secret
+- le relais lance `scripts/deploy-o2switch.sh` en local sur le serveur
+- le script execute `git fetch`, `git checkout`, `git pull --ff-only`
+- le script execute `npm ci --omit=dev`
+- le script cree `tmp/restart.txt` pour forcer le redemarrage Passenger/Node.js
 
-Si le job `deploy-o2switch` echoue des l'etape SSH, le workflow verifie maintenant explicitement que tous les secrets sont definis et que la cle privee SSH est lisible. Le secret `O2SWITCH_SSH_PRIVATE_KEY` peut contenir soit la cle privee complete, soit la cle privee encodee en base64. Si `ssh-keygen` echoue, le secret est invalide ou tronque. Si `ssh-keyscan` echoue depuis GitHub mais fonctionne chez toi, renseigne `O2SWITCH_SSH_KNOWN_HOSTS` avec la sortie de `ssh-keyscan -p PORT -H HOST` pour bypasser cette etape.
+Le webhook de deploiement est desactive tant que `URA_DEPLOY_TOKEN` n'est pas defini sur le serveur. Il n'accepte qu'un `POST` authentifie et ne deploye que la branche autorisee.
 
 ## Relais sur serveur dedie
 
