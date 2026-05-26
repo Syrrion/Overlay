@@ -1,5 +1,8 @@
 name: Build macOS
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 on:
   workflow_dispatch:
   push:
@@ -13,7 +16,6 @@ jobs:
       contents: write
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
     steps:
       - name: Checkout repository
@@ -60,14 +62,16 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
+
+      - name: Setup Git LFS
+        shell: bash
+        run: git lfs install
 
       - name: Download built DMG
         uses: actions/download-artifact@v4
@@ -86,7 +90,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add server/public/downloads/Ura-Helper-macos-arm64.dmg
+          git add .gitattributes server/public/downloads/Ura-Helper-macos-arm64.dmg
           if git diff --cached --quiet; then
             echo "No DMG changes to commit"
             exit 0
