@@ -554,7 +554,7 @@ body.palette-body {
 }
 
 .sequence-panel.is-empty {
-  opacity: 0.64;
+  border-color: rgba(246, 241, 231, 0.14);
 }
 
 .sequence-row,
