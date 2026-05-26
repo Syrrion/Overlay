@@ -477,7 +477,7 @@ body.palette-body {
 .compact-client-count {
   position: fixed;
   bottom: 8px;
-  left: 13px;
+  left: 18px;
   z-index: 3;
   display: inline-grid;
   grid-template-columns: auto auto;
