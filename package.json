@@ -9,7 +9,7 @@
     "start": "electron .",
     "relay": "node server/relay.js",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js && node --check server/public/app.js",
-    "build": "electron-builder --win nsis",
+    "build": "electron-builder --win nsis --publish never",
     "build:mac": "electron-builder --mac dmg --arm64 --publish never"
   },
   "build": {

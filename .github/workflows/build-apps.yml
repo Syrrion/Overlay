@@ -40,7 +40,15 @@ jobs:
           CLIENT_VERSION=$(node -e "const fs=require('fs'); const match=fs.readFileSync('src/main.js', 'utf8').match(/DESKTOP_CLIENT_VERSION\s*=\s*(\d+)/); console.log(match[1])")
           echo "CLIENT_VERSION=$CLIENT_VERSION" >> $GITHUB_ENV
 
+      - name: Check Cache
+        id: cache-build
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: dist-windows-v${{ env.CLIENT_VERSION }}-${{ hashFiles('src/**', 'package.json') }}
+
       - name: Build Windows x64
+        if: steps.cache-build.outputs.cache-hit != 'true'
         run: npm run build
 
       - name: Upload workflow artifacts
@@ -88,7 +96,15 @@ jobs:
           CLIENT_VERSION=$(node -e "const fs=require('fs'); const match=fs.readFileSync('src/main.js', 'utf8').match(/DESKTOP_CLIENT_VERSION\s*=\s*(\d+)/); console.log(match[1])")
           echo "CLIENT_VERSION=$CLIENT_VERSION" >> $GITHUB_ENV
 
+      - name: Check Cache
+        id: cache-build
+        uses: actions/cache@v4
+        with:
+          path: dist
+          key: dist-macos-v${{ env.CLIENT_VERSION }}-${{ hashFiles('src/**', 'package.json') }}
+
       - name: Build macOS arm64
+        if: steps.cache-build.outputs.cache-hit != 'true'
         run: npm run build:mac
 
       - name: Upload workflow artifacts
