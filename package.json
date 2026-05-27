@@ -35,8 +35,8 @@
       "artifactName": "Ura-Helper-v${env.CLIENT_VERSION}-windows-${arch}-installer.${ext}"
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true
     },
