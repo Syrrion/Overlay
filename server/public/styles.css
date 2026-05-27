@@ -27,6 +27,14 @@
   font-weight: 800;
   text-decoration: none;
   transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+  gap: 8px;
+}
+
+.download-link svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  stroke: none;
 }
 
 .download-link:hover {
@@ -135,6 +143,22 @@ h1,
 h1 {
   font-size: clamp(32px, 5vw, 46px);
   line-height: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.version-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+  vertical-align: middle;
 }
 
 .hero-text {
