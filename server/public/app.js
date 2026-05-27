@@ -40,8 +40,6 @@ const elements = {
   expiryTrack: document.getElementById("expiry-track"),
   leaderControls: document.getElementById("leader-controls"),
   leaderMode: document.getElementById("leader-mode"),
-  modeCopy: document.getElementById("mode-copy"),
-  modeEyebrow: document.getElementById("mode-eyebrow"),
   sequence: document.getElementById("sequence"),
   symbolActions: document.getElementById("symbol-actions"),
   statusPill: document.getElementById("status-pill"),
