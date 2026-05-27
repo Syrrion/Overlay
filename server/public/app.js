@@ -411,11 +411,13 @@ function hideExpiryBar() {
 }
 
 function setStatus(message, variant) {
-  if (!elements.statusText || !elements.statusPill) {
+  if (!elements.statusPill) {
     return;
   }
 
-  elements.statusText.textContent = message;
+  if (elements.statusText) {
+    elements.statusText.textContent = message;
+  }
   elements.statusPill.className = "status-pill";
 
   if (variant === "connected") {
