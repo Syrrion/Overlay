@@ -16,14 +16,13 @@
   align-items: center;
   justify-content: center;
   width: fit-content;
-  min-height: 42px;
-  margin-top: 8px;
-  padding: 0 16px;
+  min-height: 38px;
+  padding: 0 14px;
   border: 1px solid rgba(255, 176, 0, 0.34);
   border-radius: 999px;
   color: #18140b;
   background: linear-gradient(145deg, #ffb000, #f3df9b);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   text-decoration: none;
   transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
@@ -100,24 +99,25 @@ body {
   display: flex;
   align-items: center;
   gap: 18px;
-  padding: 22px;
+  padding: 24px;
 }
 
 .brand-mark {
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
-  border-radius: 18px;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
   color: #18140b;
   background: linear-gradient(145deg, #ffb000, #f3df9b);
-  font-size: 27px;
+  box-shadow: 0 4px 16px rgba(255, 176, 0, 0.2);
+  font-size: 24px;
   font-weight: 800;
 }
 
 .hero-copy {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .eyebrow,
@@ -129,7 +129,7 @@ body {
 
 .eyebrow {
   color: var(--amber);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -141,21 +141,21 @@ h1,
 }
 
 h1 {
-  font-size: clamp(32px, 5vw, 46px);
-  line-height: 1;
+  font-size: clamp(26px, 4vw, 32px);
+  line-height: 1.1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .version-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 2px 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   vertical-align: middle;
@@ -164,8 +164,8 @@ h1 {
 .hero-text {
   max-width: 42rem;
   color: var(--muted);
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.4;
 }
 
 .viewer-panel {
