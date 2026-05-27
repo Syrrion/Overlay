@@ -124,10 +124,6 @@ function createCompactMarkup(targetView) {
 
 function configureModeUi() {
   if (view === "page") {
-    elements.modeEyebrow.textContent = mode === "leader" ? "Leader Web" : "Viewer Web";
-    elements.modeCopy.textContent = mode === "leader"
-      ? "Pilote la sequence depuis le navigateur et synchronise les viewers en direct."
-      : "Consulte la sequence en direct depuis une simple URL, sans installer le client lourd.";
 
     elements.leaderControls.classList.toggle("is-hidden", mode !== "leader");
     elements.viewerMode.classList.toggle("is-active", mode === "viewer");
