@@ -10,8 +10,10 @@ const MAX_JSON_BODY_BYTES = 16 * 1024;
 const STATE_WRITE_DEBOUNCE_MS = 50;
 const SYMBOLS = ["cross", "t", "circle", "diamond", "triangle"];
 const UNKNOWN_SYMBOL = "unknown";
-// Bump only when the desktop Electron client must be updated.
-const EXPECTED_DESKTOP_CLIENT_VERSION = 1;
+// Dynamically read from main.js to keep in sync
+const mainJsContent = fs.readFileSync(path.join(__dirname, "../src/main.js"), "utf8");
+const versionMatch = mainJsContent.match(/DESKTOP_CLIENT_VERSION\s*=\s*(\d+)/);
+const EXPECTED_DESKTOP_CLIENT_VERSION = versionMatch ? parseInt(versionMatch[1], 10) : 1;
 const DEFAULT_ROOM = "ura-helper";
 const PUBLIC_DIR = path.join(__dirname, "public");
 const STATE_FILE = process.env.URA_RELAY_STATE_FILE || path.join(__dirname, ".relay-state.json");

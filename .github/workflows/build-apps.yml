@@ -47,14 +47,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ura-helper-windows-x64
-          path: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-portable.exe
+          path: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-installer.exe
           if-no-files-found: error
 
       - name: Attach artifacts to GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-portable.exe
+          files: dist/Ura-Helper-v${{ env.CLIENT_VERSION }}-windows-x64-installer.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

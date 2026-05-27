@@ -9,7 +9,7 @@
     "start": "electron .",
     "relay": "node server/relay.js",
     "check": "node --check src/main.js && node --check src/preload.js && node --check src/renderer/app.js && node --check server/relay.js && node --check server/public/app.js",
-    "build": "electron-builder --win portable",
+    "build": "electron-builder --win nsis",
     "build:mac": "electron-builder --mac dmg --arm64 --publish never"
   },
   "build": {
@@ -26,13 +26,19 @@
       "signAndEditExecutable": false,
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
-      "artifactName": "Ura-Helper-v${env.CLIENT_VERSION}-windows-${arch}-portable.${ext}"
+      "artifactName": "Ura-Helper-v${env.CLIENT_VERSION}-windows-${arch}-installer.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     },
     "mac": {
       "category": "public.app-category.utilities",
